@@ -61,6 +61,82 @@ def add_exchange_prefix_if_needed(code: str) -> str:
     return code
 
 
+def normalize_index_symbol_for_em(code: str) -> str:
+    code = code.strip().lower()
+    if code.startswith(("csi", "sh", "sz")):
+        return code
+    if len(code) == 6 and code.isdigit():
+        return f"csi{code}"
+    return code
+
+
+def extract_index_digits(code: str) -> str:
+    raw = code.strip().lower()
+    digits = "".join(ch for ch in raw if ch.isdigit())
+    return digits[-6:] if len(digits) >= 6 else digits
+
+
+def build_em_index_symbols(code: str) -> List[str]:
+    raw = code.strip().lower()
+    digits = extract_index_digits(raw)
+
+    has_sz_hint = raw.startswith("sz") or raw.endswith(".sz")
+    has_sh_hint = raw.startswith("sh") or raw.endswith(".sh")
+    has_csi_hint = raw.startswith("csi")
+
+    candidates: List[str] = []
+
+    # 显式带交易所后缀时优先转换为 EM 支持格式，如 980081.sz -> sz980081
+    if raw.endswith(".sz") and len(digits) == 6:
+        candidates.append(f"sz{digits}")
+    if raw.endswith(".sh") and len(digits) == 6:
+        candidates.append(f"sh{digits}")
+
+    if raw and "." not in raw:
+        candidates.append(raw)
+
+    if len(digits) == 6:
+        if has_sz_hint:
+            candidates.extend([f"sz{digits}", digits, f"sh{digits}", f"csi{digits}"])
+        elif has_sh_hint:
+            candidates.extend([f"sh{digits}", digits, f"sz{digits}", f"csi{digits}"])
+        elif has_csi_hint:
+            candidates.extend([f"csi{digits}", digits, f"sz{digits}", f"sh{digits}"])
+        else:
+            # 无前缀时根据常见规则给优先级
+            if digits.startswith(("39", "98")):
+                candidates.extend([f"sz{digits}", f"csi{digits}", f"sh{digits}", digits])
+            elif digits.startswith(("93",)):
+                candidates.extend([f"csi{digits}", f"sz{digits}", f"sh{digits}", digits])
+            elif digits.startswith(("00", "88", "99")):
+                candidates.extend([f"sh{digits}", f"csi{digits}", f"sz{digits}", digits])
+            else:
+                candidates.extend([f"csi{digits}", f"sz{digits}", f"sh{digits}", digits])
+
+    # 去重并保持顺序
+    seen = set()
+    deduped: List[str] = []
+    for item in candidates:
+        if item and item not in seen:
+            deduped.append(item)
+            seen.add(item)
+    return deduped
+
+
+def build_numeric_index_symbols(code: str) -> List[str]:
+    raw = code.strip()
+    digits = extract_index_digits(raw)
+    candidates = [digits, raw]
+    seen = set()
+    deduped: List[str] = []
+    for item in candidates:
+        item = item.strip()
+        if item and item not in seen:
+            deduped.append(item)
+            seen.add(item)
+    return deduped
+
+
 def is_retryable_error(exc: Exception) -> bool:
     if isinstance(exc, requests.exceptions.RequestException):
         return True
@@ -125,6 +201,7 @@ def fetch_etf_data(code: str, start_date: str, end_date: str) -> pd.DataFrame:
                     return normalized
             except Exception as exc:  # noqa: BLE001
                 errors.append(f"fund_etf_hist_em({symbol}): {exc}")
+                print(f"[WARN] ETF 主数据源失败，准备尝试备源: fund_etf_hist_em({symbol}) -> {exc}")
 
     # 降级接口: ETF 净值历史
     if hasattr(ak, "fund_etf_fund_info_em"):
@@ -148,12 +225,62 @@ def fetch_etf_data(code: str, start_date: str, end_date: str) -> pd.DataFrame:
 
 
 def fetch_index_data(code: str, start_date: str, end_date: str) -> pd.DataFrame:
-    raw = run_with_retry(
-        "index_zh_a_hist",
-        lambda: ak.index_zh_a_hist(symbol=code, period="daily", start_date=start_date, end_date=end_date),
-    )
-    normalized = normalize_dataframe(raw)
-    return normalized
+    errors: List[str] = []
+
+    # 主接口: 东方财富指数日线（对 csi930955 实测更稳定）
+    if hasattr(ak, "stock_zh_index_daily_em"):
+        for symbol_em in build_em_index_symbols(code):
+            try:
+                raw = run_with_retry(
+                    "stock_zh_index_daily_em",
+                    lambda: ak.stock_zh_index_daily_em(symbol=symbol_em, start_date=start_date, end_date=end_date),
+                )
+                normalized = normalize_dataframe(raw)
+                if not normalized.empty:
+                    return normalized
+                errors.append(f"stock_zh_index_daily_em({symbol_em}): empty result")
+                print(f"[WARN] 指数主数据源返回空数据，尝试下一个符号: {symbol_em}")
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"stock_zh_index_daily_em({symbol_em}): {exc}")
+                print(f"[WARN] 指数主数据源失败，尝试下一个符号: {symbol_em} -> {exc}")
+
+    # 备源1: 东方财富另一接口
+    if hasattr(ak, "index_zh_a_hist"):
+        for symbol_hist in build_numeric_index_symbols(code):
+            try:
+                raw = run_with_retry(
+                    "index_zh_a_hist",
+                    lambda: ak.index_zh_a_hist(
+                        symbol=symbol_hist, period="daily", start_date=start_date, end_date=end_date
+                    ),
+                )
+                normalized = normalize_dataframe(raw)
+                if not normalized.empty:
+                    return normalized
+                errors.append(f"index_zh_a_hist({symbol_hist}): empty result")
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"index_zh_a_hist({symbol_hist}): {exc}")
+                print(f"[WARN] 指数备源1失败，准备尝试备源2: index_zh_a_hist({symbol_hist}) -> {exc}")
+
+    # 备源2: 中证官网指数历史
+    if hasattr(ak, "stock_zh_index_hist_csindex"):
+        for symbol_csindex in build_numeric_index_symbols(code):
+            try:
+                raw = run_with_retry(
+                    "stock_zh_index_hist_csindex",
+                    lambda: ak.stock_zh_index_hist_csindex(
+                        symbol=symbol_csindex, start_date=start_date, end_date=end_date
+                    ),
+                )
+                normalized = normalize_dataframe(raw)
+                if not normalized.empty:
+                    return normalized
+                errors.append(f"stock_zh_index_hist_csindex({symbol_csindex}): empty result")
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"stock_zh_index_hist_csindex({symbol_csindex}): {exc}")
+
+    error_message = "; ".join(errors) if errors else "未找到可用指数接口"
+    raise RuntimeError(f"指数数据获取失败: {error_message}")
 
 
 def compute_drawdown(df: pd.DataFrame, lookback_days: int) -> Dict:
