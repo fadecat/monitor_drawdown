@@ -2,7 +2,7 @@ targets:
   - name: "红利低波100ETF"
     code: "159556"
     type: "etf"
-    threshold: 0.08
+    threshold: 0
     lookback_days: 120
 
   - name: "红利低波100指数"
