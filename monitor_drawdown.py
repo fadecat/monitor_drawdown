@@ -1,6 +1,7 @@
 import os
+import time
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 
 import akshare as ak
 import pandas as pd
@@ -25,8 +26,16 @@ def normalize_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     renamed = df.copy()
     renamed.columns = [str(col).strip().lower() for col in renamed.columns]
 
-    date_col_candidates = ["日期", "date", "交易日期"]
-    close_col_candidates = ["收盘", "收盘价", "close", "close_price", "closeprice"]
+    date_col_candidates = ["日期", "date", "交易日期", "净值日期"]
+    close_col_candidates = [
+        "收盘",
+        "收盘价",
+        "close",
+        "close_price",
+        "closeprice",
+        "单位净值",
+        "累计净值",
+    ]
 
     date_col = next((c for c in date_col_candidates if c in renamed.columns), None)
     close_col = next((c for c in close_col_candidates if c in renamed.columns), None)
@@ -52,42 +61,97 @@ def add_exchange_prefix_if_needed(code: str) -> str:
     return code
 
 
-def fetch_etf_data(code: str, start_date: str, end_date: str) -> pd.DataFrame:
-    last_error: Optional[Exception] = None
+def is_retryable_error(exc: Exception) -> bool:
+    if isinstance(exc, requests.exceptions.RequestException):
+        return True
 
-    # 优先使用可指定时间区间的接口
-    for kwargs in (
-        {"symbol": code, "start_date": start_date, "end_date": end_date},
-        {"fund": code, "start_date": start_date, "end_date": end_date},
-    ):
+    message = str(exc).lower()
+    retry_keywords = [
+        "timeout",
+        "timed out",
+        "connection",
+        "connection aborted",
+        "remote end closed",
+        "max retries exceeded",
+        "temporarily unavailable",
+        "502",
+        "503",
+        "504",
+    ]
+    return any(keyword in message for keyword in retry_keywords)
+
+
+def run_with_retry(name: str, fn: Callable[[], pd.DataFrame], retries: int = 3, base_sleep: float = 1.5) -> pd.DataFrame:
+    last_error: Optional[Exception] = None
+    for attempt in range(1, retries + 1):
         try:
-            raw = ak.fund_etf_fund_info_em(**kwargs)
+            return fn()
+        except TypeError:
+            # 参数不匹配属于接口差异，不重试
+            raise
+        except Exception as exc:  # noqa: BLE001
+            last_error = exc
+            if attempt < retries and is_retryable_error(exc):
+                wait = base_sleep * attempt
+                print(f"[WARN] {name} 第 {attempt}/{retries} 次失败: {exc}，{wait:.1f}s 后重试")
+                time.sleep(wait)
+                continue
+            raise
+
+    if last_error:
+        raise last_error
+    raise RuntimeError(f"{name} 调用失败")
+
+
+def fetch_etf_data(code: str, start_date: str, end_date: str) -> pd.DataFrame:
+    errors: List[str] = []
+
+    # 主接口: ETF 历史行情（优先级最高，返回标准 OHLC）
+    if hasattr(ak, "fund_etf_hist_em"):
+        for symbol in [code, add_exchange_prefix_if_needed(code)]:
+            try:
+                raw = run_with_retry(
+                    "fund_etf_hist_em",
+                    lambda: ak.fund_etf_hist_em(
+                        symbol=symbol,
+                        period="daily",
+                        start_date=start_date,
+                        end_date=end_date,
+                        adjust="",
+                    ),
+                )
+                normalized = normalize_dataframe(raw)
+                if not normalized.empty:
+                    return normalized
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"fund_etf_hist_em({symbol}): {exc}")
+
+    # 降级接口: ETF 净值历史
+    if hasattr(ak, "fund_etf_fund_info_em"):
+        try:
+            raw = run_with_retry(
+                "fund_etf_fund_info_em",
+                lambda: ak.fund_etf_fund_info_em(
+                    fund=code,
+                    start_date=start_date,
+                    end_date=end_date,
+                ),
+            )
             normalized = normalize_dataframe(raw)
             if not normalized.empty:
                 return normalized
-        except TypeError:
-            # 某些 akshare 版本不支持对应参数名，继续尝试其他参数组合
-            continue
         except Exception as exc:  # noqa: BLE001
-            last_error = exc
+            errors.append(f"fund_etf_fund_info_em({code}): {exc}")
 
-    # 回退到日线接口
-    for symbol in [code, add_exchange_prefix_if_needed(code)]:
-        try:
-            raw = ak.etf_fund_daily(symbol=symbol)
-            normalized = normalize_dataframe(raw)
-            if not normalized.empty:
-                return normalized[normalized["date"] >= pd.to_datetime(start_date)]
-        except Exception as exc:  # noqa: BLE001
-            last_error = exc
-
-    if last_error:
-        raise RuntimeError(f"ETF 数据获取失败: {last_error}") from last_error
-    raise RuntimeError("ETF 数据获取失败，未返回有效数据")
+    error_message = "; ".join(errors) if errors else "未找到可用 ETF 接口"
+    raise RuntimeError(f"ETF 数据获取失败: {error_message}")
 
 
 def fetch_index_data(code: str, start_date: str, end_date: str) -> pd.DataFrame:
-    raw = ak.index_zh_a_hist(symbol=code, period="daily", start_date=start_date, end_date=end_date)
+    raw = run_with_retry(
+        "index_zh_a_hist",
+        lambda: ak.index_zh_a_hist(symbol=code, period="daily", start_date=start_date, end_date=end_date),
+    )
     normalized = normalize_dataframe(raw)
     return normalized
 
