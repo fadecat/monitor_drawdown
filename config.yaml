@@ -2,19 +2,19 @@ targets:
   - name: "红利低波100ETF(博时)"
     code: "159307"
     type: "etf"
-    threshold: 0.05
+    threshold: 0.02
     lookback_days: 120
 
   - name: "红利低波100指数"
     code: "930955"
     type: "index"
-    threshold: 0.05
+    threshold: 0.02
     lookback_days: 120
   
   - name: "价值100指数"
     code: "980081"
     type: "index"
-    threshold: 0.05
+    threshold: 0
     lookback_days: 120
 
   # 你可以继续添加更多监控标的，例如：
