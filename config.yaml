@@ -1,0 +1,19 @@
+targets:
+  - name: "红利低波100ETF"
+    code: "159556"
+    type: "etf"
+    threshold: 0.08
+    lookback_days: 120
+
+  - name: "红利低波100指数"
+    code: "930955"
+    type: "index"
+    threshold: 0.05
+    lookback_days: 120
+
+  # 你可以继续添加更多监控标的，例如：
+  # - name: "示例ETF"
+  #   code: "515100"
+  #   type: "etf"
+  #   threshold: 0.10
+  #   lookback_days: 180
