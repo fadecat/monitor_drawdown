@@ -311,19 +311,54 @@ def compute_drawdown(df: pd.DataFrame, lookback_days: int) -> Dict:
     }
 
 
+def format_number(value: float, decimals: int = 4) -> str:
+    text = f"{value:.{decimals}f}".rstrip("0").rstrip(".")
+    return text if text else "0"
+
+
+def format_percent(value: float, decimals: int = 2) -> str:
+    text = f"{value:.{decimals}f}".rstrip("0").rstrip(".")
+    return text if text else "0"
+
+
 def send_webhook(webhook_url: str, triggered_items: List[Dict]) -> None:
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    lines = [f"监控触发时间: {now_str}", "触发标的:"]
+    lines = [
+        "**📉 核心标的监控告警**",
+        f"> 触发时间: <font color=\"comment\">{now_str}</font>",
+        "",
+    ]
 
     for item in triggered_items:
-        lines.append(
-            f"- {item['name']} ({item['code']}): "
-            f"回撤 {item['drawdown'] * 100:.2f}%, "
-            f"当前价 {item['current_price']:.4f}, "
-            f"近期高点 {item['peak_price']:.4f} (日期 {item['peak_date']})"
-        )
+        name = item["name"]
+        code = item["code"]
+        drawdown_pct = item["drawdown"] * 100
+        current_price = format_number(item["current_price"], decimals=4)
+        peak_price = format_number(item["peak_price"], decimals=4)
+        peak_date = item["peak_date"]
 
-    payload = {"msgtype": "text", "text": {"content": "\n".join(lines)}}
+        if abs(drawdown_pct) < 1e-8:
+            lines.extend(
+                [
+                    f"🚀 **{name} ({code})**",
+                    "> 突破状态: <font color=\"info\">**创近期新高！**</font>",
+                    f"> 当前价格: **{current_price}**",
+                    "",
+                ]
+            )
+        else:
+            drawdown_text = format_percent(drawdown_pct, decimals=2)
+            lines.extend(
+                [
+                    f"🔻 **{name} ({code})**",
+                    f"> 当前回撤: <font color=\"warning\">**-{drawdown_text}%**</font>",
+                    f"> 当前价格: **{current_price}**",
+                    f"> 历史高点: {peak_price} ({peak_date})",
+                    "",
+                ]
+            )
+
+    payload = {"msgtype": "markdown", "markdown": {"content": "\n".join(lines).strip()}}
     response = requests.post(webhook_url, json=payload, timeout=15)
     response.raise_for_status()
     print(f"[INFO] Webhook 发送成功，状态码: {response.status_code}")
