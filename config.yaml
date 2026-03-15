@@ -5,15 +5,9 @@ targets:
     threshold: 0.05
     lookback_days: 120
 
-  - name: "红利低波100指数"
-    code: "930955"
-    type: "index"
-    threshold: 0.05
-    lookback_days: 120
-  
-  - name: "价值100指数"
-    code: "980081"
-    type: "index"
+  - name: "价值100ETF"
+    code: "512040"
+    type: "etf"
     threshold: 0.05
     lookback_days: 120
 
