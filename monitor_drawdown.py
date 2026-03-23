@@ -1,12 +1,18 @@
 import os
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Callable, Dict, List, Optional
 
 import akshare as ak
 import pandas as pd
 import requests
 import yaml
+
+
+BEIJING_TZ = timezone(timedelta(hours=8))
+
+def now_in_beijing() -> datetime:
+    return datetime.now(BEIJING_TZ)
 
 
 def load_config(config_path: str) -> List[Dict]:
@@ -322,7 +328,7 @@ def format_percent(value: float, decimals: int = 2) -> str:
 
 
 def send_webhook(webhook_url: str, triggered_items: List[Dict]) -> None:
-    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    now_str = now_in_beijing().strftime("%Y-%m-%d %H:%M:%S")
     lines = [
         "**📉 核心标的监控告警**",
         f"> 触发时间: <font color=\"comment\">{now_str}</font>",
@@ -377,10 +383,12 @@ def main() -> None:
         print("[WARN] 未配置任何监控标的，退出。")
         return
 
-    end = datetime.now().date()
+    current_time = now_in_beijing()
+    end = current_time.date()
     start = end - timedelta(days=365)
     start_str = start.strftime("%Y%m%d")
     end_str = end.strftime("%Y%m%d")
+    print(f"[INFO] 当前北京时间: {current_time.strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"[INFO] 拉取数据区间: {start_str} - {end_str}")
 
     triggered: List[Dict] = []
@@ -444,3 +452,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
