@@ -1,19 +1,19 @@
 # monitor_drawdown
 
-用于监控 ETF 回撤并通过企业微信 Webhook 发送告警。
+用于监控 ETF / 指数回撤并通过企业微信 Webhook 发送告警。
 
 ## 当前监控标的
 
 - 红利低波100ETF(博时) `159307`
 - 价值100ETF `512040`
 
-当前项目已不再监控指数，只保留 ETF。
+当前版本会优先使用 `tickflow` 获取日线数据，拿不到时再回退到 `akshare`。
 
 ## 当前已实现指标
 
 - 回撤：在 `lookback_days` 窗口内，用历史最高价与当前价格计算回撤
 
-当前代码只依赖 ETF 历史行情或净值数据，核心逻辑在 `monitor_drawdown.py`。
+当前代码核心逻辑在 `monitor_drawdown.py`，支持 ETF 与指数日线回撤监控。
 
 ## 本次对话结论
 
@@ -23,7 +23,7 @@
 
 程序会：
 
-1. 从 AkShare 拉取 ETF 历史行情或净值
+1. 优先从 TickFlow 拉取 ETF / 指数日线，失败时回退到 AkShare
 2. 归一化为 `date` 和 `close`
 3. 在最近 `lookback_days` 内寻找高点
 4. 计算当前回撤，并按 `threshold` 判断是否告警
@@ -79,4 +79,11 @@ AkShare 的 `fund_etf_spot_em` 适合补充以下实时指标：
 $env:WEBHOOK_URL="你的企业微信 webhook"
 $env:CONFIG_PATH=".\config.yaml"
 python .\monitor_drawdown.py
+```
+
+安装依赖：
+
+```powershell
+python -m pip install --upgrade pip
+pip install akshare pandas requests pyyaml tickflow pytest
 ```

@@ -8,6 +8,20 @@ import pandas as pd
 import requests
 import yaml
 
+try:
+    import httpx
+except ImportError:  # pragma: no cover
+    httpx = None
+
+try:
+    from tickflow import TickFlow
+except ImportError:  # pragma: no cover
+    TickFlow = None
+
+
+DEFAULT_TICKFLOW_FREE_BASE_URL = "https://free-api.tickflow.org"
+DEFAULT_TICKFLOW_DAILY_COUNT = 500
+
 
 def load_config(config_path: str) -> List[Dict]:
     with open(config_path, "r", encoding="utf-8") as file:
@@ -26,7 +40,7 @@ def normalize_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     renamed = df.copy()
     renamed.columns = [str(col).strip().lower() for col in renamed.columns]
 
-    date_col_candidates = ["日期", "date", "交易日期", "净值日期"]
+    date_col_candidates = ["日期", "date", "trade_date", "交易日期", "净值日期"]
     close_col_candidates = [
         "收盘",
         "收盘价",
@@ -59,6 +73,68 @@ def add_exchange_prefix_if_needed(code: str) -> str:
     if len(code) == 6 and code.isdigit():
         return f"sh{code}" if code[0] in {"5", "6", "9"} else f"sz{code}"
     return code
+
+
+def dedupe_keep_order(items: List[str]) -> List[str]:
+    seen = set()
+    deduped: List[str] = []
+    for item in items:
+        if item and item not in seen:
+            deduped.append(item)
+            seen.add(item)
+    return deduped
+
+
+def build_tickflow_etf_symbols(code: str) -> List[str]:
+    raw = code.strip().lower()
+    digits = extract_index_digits(raw)
+    has_sz_hint = raw.startswith("sz") or raw.endswith(".sz")
+    has_sh_hint = raw.startswith("sh") or raw.endswith(".sh")
+
+    candidates: List[str] = []
+
+    if raw.endswith(".sz") and len(digits) == 6:
+        candidates.append(f"{digits}.SZ")
+    if raw.endswith(".sh") and len(digits) == 6:
+        candidates.append(f"{digits}.SH")
+
+    if len(digits) == 6:
+        if has_sz_hint:
+            candidates.extend([f"{digits}.SZ", f"{digits}.SH"])
+        elif has_sh_hint:
+            candidates.extend([f"{digits}.SH", f"{digits}.SZ"])
+        else:
+            primary_exchange = "SH" if digits[0] in {"5", "6", "9"} else "SZ"
+            secondary_exchange = "SZ" if primary_exchange == "SH" else "SH"
+            candidates.extend([f"{digits}.{primary_exchange}", f"{digits}.{secondary_exchange}"])
+
+    return dedupe_keep_order(candidates)
+
+
+def build_tickflow_index_symbols(code: str) -> List[str]:
+    raw = code.strip().lower()
+    digits = extract_index_digits(raw)
+    has_sz_hint = raw.startswith("sz") or raw.endswith(".sz")
+    has_sh_hint = raw.startswith("sh") or raw.endswith(".sh")
+
+    candidates: List[str] = []
+
+    if raw.endswith(".sz") and len(digits) == 6:
+        candidates.append(f"{digits}.SZ")
+    if raw.endswith(".sh") and len(digits) == 6:
+        candidates.append(f"{digits}.SH")
+
+    if len(digits) == 6:
+        if has_sz_hint:
+            candidates.extend([f"{digits}.SZ", f"{digits}.SH"])
+        elif has_sh_hint:
+            candidates.extend([f"{digits}.SH", f"{digits}.SZ"])
+        elif digits.startswith(("39", "98")):
+            candidates.extend([f"{digits}.SZ", f"{digits}.SH"])
+        else:
+            candidates.extend([f"{digits}.SH", f"{digits}.SZ"])
+
+    return dedupe_keep_order(candidates)
 
 
 def normalize_index_symbol_for_em(code: str) -> str:
@@ -114,31 +190,83 @@ def build_em_index_symbols(code: str) -> List[str]:
                 candidates.extend([f"csi{digits}", f"sz{digits}", f"sh{digits}", digits])
 
     # 去重并保持顺序
-    seen = set()
-    deduped: List[str] = []
-    for item in candidates:
-        if item and item not in seen:
-            deduped.append(item)
-            seen.add(item)
-    return deduped
+    return dedupe_keep_order(candidates)
 
 
 def build_numeric_index_symbols(code: str) -> List[str]:
     raw = code.strip()
     digits = extract_index_digits(raw)
     candidates = [digits, raw]
-    seen = set()
-    deduped: List[str] = []
-    for item in candidates:
-        item = item.strip()
-        if item and item not in seen:
-            deduped.append(item)
-            seen.add(item)
-    return deduped
+    return dedupe_keep_order([item.strip() for item in candidates])
+
+
+def build_tickflow_client() -> Optional["TickFlow"]:
+    if TickFlow is None:
+        return None
+
+    timeout = float(os.getenv("TICKFLOW_TIMEOUT", "15"))
+    api_key = os.getenv("TICKFLOW_API_KEY")
+
+    if api_key:
+        return TickFlow(
+            api_key=api_key,
+            base_url=os.getenv("TICKFLOW_BASE_URL"),
+            timeout=timeout,
+        )
+
+    return TickFlow(
+        api_key=None,
+        base_url=os.getenv("TICKFLOW_FREE_BASE_URL", DEFAULT_TICKFLOW_FREE_BASE_URL),
+        timeout=timeout,
+    )
+
+
+def clip_dataframe_by_date(df: pd.DataFrame, start_date: str, end_date: str) -> pd.DataFrame:
+    if df.empty:
+        return df
+
+    start_ts = pd.to_datetime(start_date, format="%Y%m%d")
+    end_ts = pd.to_datetime(end_date, format="%Y%m%d")
+    return df[(df["date"] >= start_ts) & (df["date"] <= end_ts)].copy()
+
+
+def fetch_tickflow_klines(symbols: List[str], start_date: str, end_date: str) -> pd.DataFrame:
+    client = build_tickflow_client()
+    if client is None:
+        raise RuntimeError("tickflow 未安装")
+
+    errors: List[str] = []
+    try:
+        for symbol in symbols:
+            try:
+                raw = run_with_retry(
+                    "tickflow.klines.get",
+                    lambda symbol=symbol: client.klines.get(
+                        symbol,
+                        period="1d",
+                        count=DEFAULT_TICKFLOW_DAILY_COUNT,
+                        adjust="none",
+                        as_dataframe=True,
+                    ),
+                )
+                normalized = clip_dataframe_by_date(normalize_dataframe(raw), start_date, end_date)
+                if not normalized.empty:
+                    return normalized
+                errors.append(f"tickflow.klines.get({symbol}): empty result")
+                print(f"[WARN] TickFlow 返回空数据，尝试下一个符号: {symbol}")
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"tickflow.klines.get({symbol}): {exc}")
+                print(f"[WARN] TickFlow 数据源失败，尝试下一个符号: {symbol} -> {exc}")
+    finally:
+        client.close()
+
+    raise RuntimeError("; ".join(errors) if errors else "TickFlow 未返回有效数据")
 
 
 def is_retryable_error(exc: Exception) -> bool:
     if isinstance(exc, requests.exceptions.RequestException):
+        return True
+    if httpx is not None and isinstance(exc, httpx.HTTPError):
         return True
 
     message = str(exc).lower()
@@ -181,6 +309,14 @@ def run_with_retry(name: str, fn: Callable[[], pd.DataFrame], retries: int = 3, 
 
 def fetch_etf_data(code: str, start_date: str, end_date: str) -> pd.DataFrame:
     errors: List[str] = []
+
+    tickflow_symbols = build_tickflow_etf_symbols(code)
+    if tickflow_symbols:
+        try:
+            return fetch_tickflow_klines(tickflow_symbols, start_date, end_date)
+        except Exception as exc:  # noqa: BLE001
+            errors.append(f"tickflow({tickflow_symbols}): {exc}")
+            print(f"[WARN] ETF TickFlow 数据源失败，准备尝试 AkShare: {exc}")
 
     # 主接口: ETF 历史行情（优先级最高，返回标准 OHLC）
     if hasattr(ak, "fund_etf_hist_em"):
@@ -226,6 +362,14 @@ def fetch_etf_data(code: str, start_date: str, end_date: str) -> pd.DataFrame:
 
 def fetch_index_data(code: str, start_date: str, end_date: str) -> pd.DataFrame:
     errors: List[str] = []
+
+    tickflow_symbols = build_tickflow_index_symbols(code)
+    if tickflow_symbols:
+        try:
+            return fetch_tickflow_klines(tickflow_symbols, start_date, end_date)
+        except Exception as exc:  # noqa: BLE001
+            errors.append(f"tickflow({tickflow_symbols}): {exc}")
+            print(f"[WARN] 指数 TickFlow 数据源失败，准备尝试 AkShare: {exc}")
 
     # 主接口: 东方财富指数日线（对 csi930955 实测更稳定）
     if hasattr(ak, "stock_zh_index_daily_em"):
