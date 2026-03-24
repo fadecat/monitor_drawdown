@@ -9,6 +9,11 @@
 
 当前版本会优先使用 `tickflow` 获取日线数据，拿不到时再回退到 `akshare`。
 
+如果配置了 `JISILU_USERNAME` / `JISILU_PASSWORD`，程序还会尝试用集思录 ETF 实时价格补齐当天数据：
+
+- `etf`：直接用集思录 ETF 最新价格补今天这一条
+- `index`：匹配对应指数 ETF，用 ETF 当日涨跌幅推算指数今天这一条
+
 ## 当前已实现指标
 
 - 回撤：在 `lookback_days` 窗口内，用历史最高价与当前价格计算回撤
@@ -77,6 +82,8 @@ AkShare 的 `fund_etf_spot_em` 适合补充以下实时指标：
 
 ```powershell
 $env:WEBHOOK_URL="你的企业微信 webhook"
+$env:JISILU_USERNAME="你的集思录用户名"
+$env:JISILU_PASSWORD="你的集思录密码"
 $env:CONFIG_PATH=".\config.yaml"
 python .\monitor_drawdown.py
 ```
@@ -85,5 +92,10 @@ python .\monitor_drawdown.py
 
 ```powershell
 python -m pip install --upgrade pip
-pip install akshare pandas requests pyyaml tickflow pytest
+pip install akshare pandas requests pyyaml tickflow pytest pycryptodome
+```
+只测试“历史数据 + 集思录当天价格 + 最大回撤”时，可直接运行：
+
+```powershell
+python .\test_jisilu_index_patch.py
 ```

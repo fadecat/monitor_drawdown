@@ -92,3 +92,87 @@ def test_fetch_index_data_falls_back_to_akshare(monkeypatch):
 
     assert result["date"].dt.strftime("%Y-%m-%d").tolist() == ["2026-03-20", "2026-03-23"]
     assert result["close"].tolist() == [4567.018, 4417.997]
+
+
+def test_find_jisilu_index_etf_candidates_matches_index_id():
+    rows = [
+        {"cell": {"fund_id": "159915", "index_id": "399006", "fund_nm": "创业板ETF"}},
+        {"cell": {"fund_id": "510300", "index_id": "000300", "fund_nm": "沪深300ETF"}},
+    ]
+
+    candidates = md.find_jisilu_index_etf_candidates(rows, "000300")
+
+    assert len(candidates) == 1
+    assert candidates[0]["fund_id"] == "510300"
+
+
+def test_patch_etf_dataframe_with_jisilu_appends_today_price():
+    df = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2026-03-21", "2026-03-23"]),
+            "close": [1.032, 1.046],
+        }
+    )
+    rows = [
+        {
+            "cell": {
+                "fund_id": "159307",
+                "fund_nm": "红利低波100ETF(博时)",
+                "price": "1.058",
+                "pre_close": "1.0460",
+                "increase_rt": "1.15",
+                "index_nm": "红利低波100",
+                "last_time": "15:00:00",
+            }
+        }
+    ]
+
+    patched_df, patch = md.patch_etf_dataframe_with_jisilu(
+        df,
+        "159307",
+        rows,
+        current_time=md.datetime(2026, 3, 24, 15, 30, tzinfo=md.BEIJING_TZ),
+    )
+
+    assert patch is not None
+    assert patch["fund_id"] == "159307"
+    assert patched_df["date"].dt.strftime("%Y-%m-%d").tolist() == ["2026-03-21", "2026-03-23", "2026-03-24"]
+    assert patched_df.iloc[-1]["close"] == 1.058
+
+
+def test_patch_index_dataframe_with_jisilu_appends_synthetic_today_row():
+    df = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2026-03-21", "2026-03-23"]),
+            "close": [4380.0, 4417.997],
+        }
+    )
+    rows = [
+        {
+            "cell": {
+                "fund_id": "510300",
+                "fund_nm": "沪深300ETF",
+                "index_id": "000300",
+                "index_nm": "沪深300",
+                "price": "4.498",
+                "pre_close": "4.4610",
+                "idx_price_dt": "2026-03-24",
+                "volume": "120000.55",
+                "amount": "2000000",
+                "last_time": "15:00:00",
+            }
+        }
+    ]
+
+    patched_df, patch = md.patch_index_dataframe_with_jisilu(
+        df,
+        "000300",
+        rows,
+        current_time=md.datetime(2026, 3, 24, 15, 30, tzinfo=md.BEIJING_TZ),
+    )
+
+    assert patch is not None
+    assert patch["fund_id"] == "510300"
+    assert round(patch["etf_return"], 6) == round(4.498 / 4.4610 - 1, 6)
+    assert patched_df["date"].dt.strftime("%Y-%m-%d").tolist() == ["2026-03-21", "2026-03-23", "2026-03-24"]
+    assert round(patched_df.iloc[-1]["close"], 6) == round(4417.997 * (4.498 / 4.4610), 6)

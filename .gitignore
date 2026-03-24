@@ -19,6 +19,9 @@ env/
 
 # Logs
 *.log
+*_output.txt
+preview_webhook_payload.json
+preview_webhook_message.md
 
 # IDE / editor
 .vscode/

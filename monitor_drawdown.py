@@ -1,7 +1,7 @@
 import os
 import time
 from datetime import datetime, timedelta, timezone
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional, Tuple
 
 import akshare as ak
 import pandas as pd
@@ -204,6 +204,34 @@ def build_numeric_index_symbols(code: str) -> List[str]:
     digits = extract_index_digits(raw)
     candidates = [digits, raw]
     return dedupe_keep_order([item.strip() for item in candidates])
+
+
+def parse_float(value: object) -> Optional[float]:
+    if value is None:
+        return None
+
+    text = str(value).strip().replace(",", "")
+    if not text or text == "-":
+        return None
+
+    try:
+        return float(text)
+    except ValueError:
+        return None
+
+
+def parse_optional_date(value: object) -> Optional[pd.Timestamp]:
+    if value is None:
+        return None
+
+    text = str(value).strip()
+    if not text or text == "-":
+        return None
+
+    parsed = pd.to_datetime(text, errors="coerce")
+    if pd.isna(parsed):
+        return None
+    return parsed.normalize()
 
 
 def build_tickflow_client() -> Optional["TickFlow"]:
@@ -433,6 +461,181 @@ def fetch_index_data(code: str, start_date: str, end_date: str) -> pd.DataFrame:
     raise RuntimeError(f"指数数据获取失败: {error_message}")
 
 
+def fetch_jisilu_etf_rows(username: str, password: str) -> List[Dict]:
+    from jisilu_login import fetch_etf_list, login_jisilu
+
+    cookie = login_jisilu(username, password)
+    if not cookie:
+        raise RuntimeError("集思录登录失败，无法获取 ETF 列表")
+
+    payload = fetch_etf_list(cookie)
+    rows = payload.get("rows", [])
+    if not isinstance(rows, list):
+        raise RuntimeError("集思录 ETF 列表格式异常")
+    return rows
+
+
+def find_jisilu_etf_by_fund_id(rows: List[Dict], fund_code: str) -> Optional[Dict]:
+    digits = extract_index_digits(fund_code)
+    if not digits:
+        return None
+
+    for row in rows:
+        cell = row.get("cell", {})
+        if not isinstance(cell, dict):
+            continue
+        if str(cell.get("fund_id", "")).strip() == digits:
+            return cell
+    return None
+
+
+def find_jisilu_index_etf_candidates(rows: List[Dict], index_code: str) -> List[Dict]:
+    digits = extract_index_digits(index_code)
+    if not digits:
+        return []
+
+    candidates: List[Dict] = []
+    for row in rows:
+        cell = row.get("cell", {})
+        if not isinstance(cell, dict):
+            continue
+        if str(cell.get("index_id", "")).strip() == digits:
+            candidates.append(cell)
+    return candidates
+
+
+def select_best_jisilu_index_etf(candidates: List[Dict]) -> Optional[Dict]:
+    if not candidates:
+        return None
+
+    def sort_key(cell: Dict) -> Tuple[int, float, float]:
+        has_price = 1 if parse_float(cell.get("price")) is not None else 0
+        volume = parse_float(cell.get("volume")) or -1.0
+        amount = parse_float(cell.get("amount")) or -1.0
+        return has_price, volume, amount
+
+    return max(candidates, key=sort_key)
+
+
+def build_etf_realtime_patch(df: pd.DataFrame, etf_cell: Dict, current_time: Optional[datetime] = None) -> Optional[Dict]:
+    if df.empty:
+        return None
+
+    sorted_df = df.sort_values("date").reset_index(drop=True)
+    last_row = sorted_df.iloc[-1]
+    last_date = pd.to_datetime(last_row["date"]).normalize()
+    patch_date = pd.Timestamp((current_time or now_in_beijing()).date())
+
+    if patch_date <= last_date:
+        return None
+
+    etf_price = parse_float(etf_cell.get("price"))
+    if etf_price is None or etf_price <= 0:
+        return None
+
+    return {
+        "date": patch_date,
+        "close": etf_price,
+        "fund_id": str(etf_cell.get("fund_id", "")).strip(),
+        "fund_nm": str(etf_cell.get("fund_nm", "")).strip(),
+        "index_nm": str(etf_cell.get("index_nm", "")).strip(),
+        "last_time": str(etf_cell.get("last_time", "")).strip(),
+        "pre_close": parse_float(etf_cell.get("pre_close")),
+        "increase_rt": parse_float(etf_cell.get("increase_rt")),
+    }
+
+
+def build_index_realtime_patch(df: pd.DataFrame, etf_cell: Dict, current_time: Optional[datetime] = None) -> Optional[Dict]:
+    if df.empty:
+        return None
+
+    sorted_df = df.sort_values("date").reset_index(drop=True)
+    last_row = sorted_df.iloc[-1]
+    last_date = pd.to_datetime(last_row["date"]).normalize()
+
+    patch_date = parse_optional_date(etf_cell.get("idx_price_dt"))
+    if patch_date is None:
+        patch_date = pd.Timestamp((current_time or now_in_beijing()).date())
+
+    if patch_date <= last_date:
+        return None
+
+    etf_price = parse_float(etf_cell.get("price"))
+    etf_pre_close = parse_float(etf_cell.get("pre_close"))
+    index_last_close = parse_float(last_row["close"])
+    if etf_price is None or etf_pre_close is None or index_last_close is None:
+        return None
+    if etf_pre_close <= 0 or index_last_close <= 0:
+        return None
+
+    etf_return = etf_price / etf_pre_close - 1
+    patched_close = index_last_close * (1 + etf_return)
+    return {
+        "date": patch_date,
+        "close": patched_close,
+        "fund_id": str(etf_cell.get("fund_id", "")).strip(),
+        "fund_nm": str(etf_cell.get("fund_nm", "")).strip(),
+        "index_id": str(etf_cell.get("index_id", "")).strip(),
+        "index_nm": str(etf_cell.get("index_nm", "")).strip(),
+        "etf_price": etf_price,
+        "etf_pre_close": etf_pre_close,
+        "etf_return": etf_return,
+        "last_time": str(etf_cell.get("last_time", "")).strip(),
+    }
+
+
+def apply_index_realtime_patch(df: pd.DataFrame, patch: Dict) -> pd.DataFrame:
+    patched_df = df.copy()
+    patched_df["date"] = pd.to_datetime(patched_df["date"], errors="coerce")
+
+    patch_date = pd.to_datetime(patch["date"]).normalize()
+    mask = patched_df["date"].dt.normalize() == patch_date
+    if mask.any():
+        patched_df.loc[mask, "close"] = patch["close"]
+    else:
+        patched_df = pd.concat(
+            [patched_df, pd.DataFrame([{"date": patch_date, "close": patch["close"]}])],
+            ignore_index=True,
+        )
+
+    return patched_df.sort_values("date").reset_index(drop=True)
+
+
+def patch_etf_dataframe_with_jisilu(
+    df: pd.DataFrame,
+    fund_code: str,
+    rows: List[Dict],
+    current_time: Optional[datetime] = None,
+) -> Tuple[pd.DataFrame, Optional[Dict]]:
+    cell = find_jisilu_etf_by_fund_id(rows, fund_code)
+    if cell is None:
+        return df, None
+
+    patch = build_etf_realtime_patch(df, cell, current_time=current_time)
+    if patch is None:
+        return df, None
+
+    return apply_index_realtime_patch(df, patch), patch
+
+
+def patch_index_dataframe_with_jisilu(
+    df: pd.DataFrame,
+    index_code: str,
+    rows: List[Dict],
+    current_time: Optional[datetime] = None,
+) -> Tuple[pd.DataFrame, Optional[Dict]]:
+    candidates = find_jisilu_index_etf_candidates(rows, index_code)
+    selected = select_best_jisilu_index_etf(candidates)
+    if selected is None:
+        return df, None
+
+    patch = build_index_realtime_patch(df, selected, current_time=current_time)
+    if patch is None:
+        return df, None
+
+    return apply_index_realtime_patch(df, patch), patch
+
+
 def compute_drawdown(df: pd.DataFrame, lookback_days: int) -> Dict:
     if df.empty:
         raise ValueError("数据为空")
@@ -471,8 +674,8 @@ def format_percent(value: float, decimals: int = 2) -> str:
     return text if text else "0"
 
 
-def send_webhook(webhook_url: str, triggered_items: List[Dict]) -> None:
-    now_str = now_in_beijing().strftime("%Y-%m-%d %H:%M:%S")
+def build_webhook_markdown_content(triggered_items: List[Dict], current_time: Optional[datetime] = None) -> str:
+    now_str = (current_time or now_in_beijing()).strftime("%Y-%m-%d %H:%M:%S")
     lines = [
         "**📉 核心标的监控告警**",
         f"> 触发时间: <font color=\"comment\">{now_str}</font>",
@@ -508,7 +711,18 @@ def send_webhook(webhook_url: str, triggered_items: List[Dict]) -> None:
                 ]
             )
 
-    payload = {"msgtype": "markdown", "markdown": {"content": "\n".join(lines).strip()}}
+    return "\n".join(lines).strip()
+
+
+def build_webhook_payload(triggered_items: List[Dict], current_time: Optional[datetime] = None) -> Dict:
+    return {
+        "msgtype": "markdown",
+        "markdown": {"content": build_webhook_markdown_content(triggered_items, current_time=current_time)},
+    }
+
+
+def send_webhook(webhook_url: str, triggered_items: List[Dict]) -> None:
+    payload = build_webhook_payload(triggered_items)
     response = requests.post(webhook_url, json=payload, timeout=15)
     response.raise_for_status()
     print(f"[INFO] Webhook 发送成功，状态码: {response.status_code}")
@@ -536,6 +750,20 @@ def main() -> None:
     print(f"[INFO] 拉取数据区间: {start_str} - {end_str}")
 
     triggered: List[Dict] = []
+    has_patch_targets = any(str(target.get("type", "")).strip().lower() in {"etf", "index"} for target in targets)
+    jisilu_rows: Optional[List[Dict]] = None
+
+    if has_patch_targets:
+        jisilu_username = os.getenv("JISILU_USERNAME", "").strip()
+        jisilu_password = os.getenv("JISILU_PASSWORD", "").strip()
+        if jisilu_username and jisilu_password:
+            try:
+                jisilu_rows = fetch_jisilu_etf_rows(jisilu_username, jisilu_password)
+                print(f"[INFO] 已加载集思录 ETF 列表，共 {len(jisilu_rows)} 条。")
+            except Exception as exc:  # noqa: BLE001
+                print(f"[WARN] 集思录 ETF 列表加载失败，指数将不补当日价格: {exc}")
+        else:
+            print("[WARN] 未配置 JISILU_USERNAME/JISILU_PASSWORD，指数将不补当日价格。")
 
     for target in targets:
         name = str(target.get("name", "")).strip()
@@ -552,8 +780,36 @@ def main() -> None:
         try:
             if target_type == "etf":
                 df = fetch_etf_data(code, start_str, end_str)
+                if jisilu_rows:
+                    df, patch = patch_etf_dataframe_with_jisilu(
+                        df,
+                        code,
+                        jisilu_rows,
+                        current_time=current_time,
+                    )
+                    if patch:
+                        print(
+                            f"[INFO] 已用集思录补齐当日 ETF: {name} ({code}) -> "
+                            f"{patch['fund_nm']}({patch['fund_id']})，"
+                            f"现价 {patch['close']:.4f}，"
+                            f"补齐日期 {pd.to_datetime(patch['date']).strftime('%Y-%m-%d')}"
+                        )
             else:
                 df = fetch_index_data(code, start_str, end_str)
+                if jisilu_rows:
+                    df, patch = patch_index_dataframe_with_jisilu(
+                        df,
+                        code,
+                        jisilu_rows,
+                        current_time=current_time,
+                    )
+                    if patch:
+                        print(
+                            f"[INFO] 已用集思录 ETF 补齐当日指数: {name} ({code}) -> "
+                            f"{patch['fund_nm']}({patch['fund_id']})，"
+                            f"ETF 涨跌 {patch['etf_return']:.2%}，"
+                            f"补齐日期 {pd.to_datetime(patch['date']).strftime('%Y-%m-%d')}"
+                        )
 
             if df.empty:
                 print(f"[WARN] {name} ({code}) 未获取到有效数据，跳过。")
@@ -596,4 +852,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
