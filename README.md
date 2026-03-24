@@ -88,6 +88,42 @@ $env:CONFIG_PATH=".\config.yaml"
 python .\monitor_drawdown.py
 ```
 
+本地只想预览日志和将要发送的消息、不实际推送 webhook 时，推荐用 `preview_webhook_message.py`。
+它会优先读取系统环境变量；如果没有，再自动读取项目根目录下未跟踪的 `.env.local`。
+
+先创建本地配置：
+
+```powershell
+Copy-Item .\.env.local.example .\.env.local
+```
+
+然后编辑 `.env.local`，至少填入：
+
+```dotenv
+JISILU_USERNAME=你的集思录用户名
+JISILU_PASSWORD=你的集思录密码
+CONFIG_PATH=./config.yaml
+```
+
+运行本地预览：
+
+```powershell
+python .\preview_webhook_message.py
+```
+
+如果你想模拟 `free-api.tickflow.org` 没有返回当天价格、改为观察“集思录补齐后的最终输出”，可以运行：
+
+```powershell
+python .\preview_webhook_message.py --simulate-missing-today
+```
+
+运行后会：
+
+- 在终端打印预览日志
+- 生成 [`preview_webhook_payload.json`](/C:/Users/han/桌面/code/monitor_drawdown/preview_webhook_payload.json)
+- 生成 [`preview_webhook_message.md`](/C:/Users/han/桌面/code/monitor_drawdown/preview_webhook_message.md)
+- 生成本地日志文件 `preview_webhook_run.log`
+
 安装依赖：
 
 ```powershell

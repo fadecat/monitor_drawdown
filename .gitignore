@@ -11,6 +11,7 @@ env/
 # Local environment variables / secrets
 .env
 .env.*
+!.env.local.example
 
 # Tooling caches
 .pytest_cache/
