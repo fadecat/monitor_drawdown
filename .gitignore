@@ -15,6 +15,7 @@ env/
 
 # Tooling caches
 .pytest_cache/
+.test_artifacts/
 .mypy_cache/
 .ruff_cache/
 

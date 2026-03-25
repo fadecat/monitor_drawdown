@@ -20,6 +20,8 @@
 
 当前代码核心逻辑在 `monitor_drawdown.py`，支持 ETF 与指数日线回撤监控。
 
+另外现在新增了一个独立脚本 `monitor_jisilu_calendar.py`，用于抓取集思录日历并推送指定标题关键词，不把这部分逻辑塞进回撤脚本里。
+
 ## 本次对话结论
 
 ### 1. 当前项目实际监控什么
@@ -82,14 +84,39 @@ AkShare 的 `fund_etf_spot_em` 适合补充以下实时指标：
 
 ```powershell
 $env:WEBHOOK_URL="你的企业微信 webhook"
+$env:CALENDAR_WEBHOOK_URL="你的日历提醒 webhook"
 $env:JISILU_USERNAME="你的集思录用户名"
 $env:JISILU_PASSWORD="你的集思录密码"
 $env:CONFIG_PATH=".\config.yaml"
 python .\monitor_drawdown.py
+python .\monitor_jisilu_calendar.py
 ```
 
 本地只想预览日志和将要发送的消息、不实际推送 webhook 时，推荐用 `preview_webhook_message.py`。
 它会优先读取系统环境变量；如果没有，再自动读取项目根目录下未跟踪的 `.env.local`。
+
+## 集思录日历提醒
+
+`config.yaml` 现在支持独立的 `calendar_monitors` 配置，例如：
+
+```yaml
+calendar_monitors:
+  - name: "下修股东会提醒"
+    qtype: "CNV"
+    window: "next_month"
+    webhook_env: "CALENDAR_WEBHOOK_URL"
+    title_keywords:
+      - "下修股东会"
+    lookahead_days: 45
+```
+
+当前实现会：
+
+- 调用 `https://www.jisilu.cn/data/calendar/get_calendar_data/`
+- 默认按“下个月自然月”动态生成 `start/end`，每天抓下个月事件
+- `window=current_to_lookahead` 时，才会按 `lookahead_days` 生成时间窗口
+- 过滤 `title` 中包含 `title_keywords` 的项目
+- 通过 `webhook_env` 指定的环境变量把结果推送到独立 webhook
 
 先创建本地配置：
 

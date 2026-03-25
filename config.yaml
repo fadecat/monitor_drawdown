@@ -18,3 +18,12 @@ targets:
   #   type: "etf"
   #   threshold: 0.10
   #   lookback_days: 180
+
+calendar_monitors:
+  - name: "下修股东会提醒"
+    qtype: "CNV"
+    window: "next_month"
+    webhook_env: "CALENDAR_WEBHOOK_URL"
+    title_keywords:
+      - "下修股东会"
+    lookahead_days: 45

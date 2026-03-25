@@ -1,0 +1,33 @@
+name: Monitor Jisilu Calendar
+
+on:
+  schedule:
+    # GitHub Actions 使用 UTC；下面分别对应上海时区每天 09:30、11:30、15:00、20:00
+    - cron: "30 1 * * *"
+    - cron: "30 3 * * *"
+    - cron: "0 7 * * *"
+    - cron: "0 12 * * *"
+  workflow_dispatch:
+
+jobs:
+  monitor-calendar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests pyyaml pytest
+
+      - name: Run Jisilu calendar monitor
+        env:
+          CALENDAR_WEBHOOK_URL: ${{ secrets.CALENDAR_WEBHOOK_URL }}
+          CONFIG_PATH: ./config.yaml
+        run: python monitor_jisilu_calendar.py

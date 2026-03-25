@@ -1,10 +1,13 @@
 from pathlib import Path
+from uuid import uuid4
 
 import local_env
 
 
-def test_parse_env_file_supports_comments_quotes_and_export(tmp_path):
-    env_path = tmp_path / ".env.local"
+def test_parse_env_file_supports_comments_quotes_and_export():
+    env_dir = Path(".test_artifacts") / f"local-env-{uuid4().hex}"
+    env_dir.mkdir(parents=True, exist_ok=True)
+    env_path = env_dir / ".env.local"
     env_path.write_text(
         "\n".join(
             [
