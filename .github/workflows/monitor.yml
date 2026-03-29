@@ -4,13 +4,13 @@ on:
   schedule:
     # GitHub Actions 使用 UTC；下面分别对应上海时区每天 09:30、11:30、15:00、20:00
     # UTC 01:30 = Asia/Shanghai 09:30
-    - cron: "30 1 * * *"
+    - cron: "30 1 * * 1-5"
     # UTC 03:30 = Asia/Shanghai 11:30
-    - cron: "30 3 * * *"
+    - cron: "30 3 * * 1-5"
     # UTC 07:00 = Asia/Shanghai 15:00
-    - cron: "0 7 * * *"
+    - cron: "0 7 * * 1-5"
     # UTC 12:00 = Asia/Shanghai 20:00
-    - cron: "0 12 * * *"
+    - cron: "0 12 * * 1-5"
   workflow_dispatch:
 
 jobs:
