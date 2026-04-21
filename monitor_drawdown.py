@@ -909,28 +909,32 @@ def compute_drawdown(df: pd.DataFrame, lookback_days: int) -> Dict:
     }
 
 
-def format_number(value: float, decimals: int = 4) -> str:
-    text = f"{value:.{decimals}f}".rstrip("0").rstrip(".")
+def format_number(value: float, decimals: int = 4, strip: bool = True) -> str:
+    text = f"{value:.{decimals}f}"
+    if strip:
+        text = text.rstrip("0").rstrip(".")
     return text if text else "0"
 
 
-def format_percent(value: float, decimals: int = 2) -> str:
-    text = f"{value:.{decimals}f}".rstrip("0").rstrip(".")
+def format_percent(value: float, decimals: int = 2, strip: bool = True) -> str:
+    text = f"{value:.{decimals}f}"
+    if strip:
+        text = text.rstrip("0").rstrip(".")
     return text if text else "0"
 
 
-def format_optional_number(value: object, decimals: int = 2) -> str:
+def format_optional_number(value: object, decimals: int = 2, strip: bool = True) -> str:
     parsed = parse_float(value)
     if parsed is None:
         return "-"
-    return format_number(parsed, decimals=decimals)
+    return format_number(parsed, decimals=decimals, strip=strip)
 
 
-def format_optional_percent(value: object, decimals: int = 2) -> str:
+def format_optional_percent(value: object, decimals: int = 2, strip: bool = True) -> str:
     parsed = parse_float(value)
     if parsed is None:
         return "-"
-    return f"{format_percent(parsed, decimals=decimals)}%"
+    return f"{format_percent(parsed, decimals=decimals, strip=strip)}%"
 
 
 def build_index_dividend_yield_line(item: Dict) -> Optional[str]:
@@ -1029,118 +1033,236 @@ def load_email_config_from_env() -> Optional[Dict]:
     }
 
 
+EMAIL_PERCENTILE_LABELS = ["3M", "6M", "1Y", "2Y", "3Y", "5Y", "10Y", "今年以来", "成立以来"]
+EMAIL_ACCENT_COLOR = "#2c7be5"
+EMAIL_ALERT_COLOR = "#d93025"
+EMAIL_MUTED_COLOR = "#888"
+EMAIL_LABEL_COLOR = "#666"
+EMAIL_BORDER_COLOR = "#e5e5e5"
+EMAIL_BASE_FONT = (
+    "font-family:-apple-system,BlinkMacSystemFont,'PingFang SC',"
+    "'Microsoft YaHei',sans-serif;font-size:14px;line-height:1.6;color:#333"
+)
+
+
 def build_email_plain_text_content(triggered_items: List[Dict], current_time: Optional[datetime] = None) -> str:
     now_str = (current_time or now_in_beijing()).strftime("%Y-%m-%d %H:%M:%S")
-    lines = [DEFAULT_EMAIL_SUBJECT, f"触发时间: {now_str}", ""]
-    for item in triggered_items:
-        drawdown_text = format_percent(item["drawdown"] * 100, decimals=2)
-        current_price = format_number(item["current_price"], decimals=4)
-        peak_price = format_number(item["peak_price"], decimals=4)
-        dividend_text = format_optional_percent(item.get("index_dividend_yield"), decimals=2)
-        index_code = str(item.get("index_code") or "").strip() or "-"
-        index_name = str(item.get("index_name") or item.get("index_short_name") or "").strip() or "-"
-        pe_ttm = format_optional_number(get_index_valuation_metric(item, "PE(TTM)").get("current"), decimals=2)
-        pb_lf = format_optional_number(get_index_valuation_metric(item, "PB(LF)").get("current"), decimals=2)
-        ps_ttm = format_optional_number(get_index_valuation_metric(item, "PS(TTM)").get("current"), decimals=2)
+    blocks: List[str] = [f"{DEFAULT_EMAIL_SUBJECT}", f"触发时间: {now_str}"]
 
-        lines.append(
-            f"{item['name']} ({item['code']}): 回撤 -{drawdown_text}%, "
-            f"当前 {current_price}, 高点 {peak_price} ({item['peak_date']}), "
-            f"追踪指数 {index_code} {index_name}, 股息率 {dividend_text}, "
-            f"PE {pe_ttm}, PB {pb_lf}, PS {ps_ttm}"
+    for item in triggered_items:
+        drawdown_text = format_percent(item["drawdown"] * 100, decimals=2, strip=False)
+        current_price = format_number(item["current_price"], decimals=4, strip=False)
+        peak_price = format_number(item["peak_price"], decimals=4, strip=False)
+
+        lines = [
+            "",
+            f"{item['name']} ({item['code']})",
+            f"  当前回撤: -{drawdown_text}%",
+            f"  当前价格: {current_price}",
+            f"  历史高点: {peak_price} ({item['peak_date']})",
+        ]
+
+        index_code = str(item.get("index_code") or "").strip()
+        index_name = str(item.get("index_name") or item.get("index_short_name") or "").strip()
+        if index_name or index_code:
+            display = index_name or "-"
+            if index_code:
+                display = f"{display} ({index_code})" if index_name else f"({index_code})"
+            lines.append(f"  追踪指数: {display}")
+
+        if item.get("index_dividend_yield") is not None:
+            dividend_text = format_optional_percent(
+                item.get("index_dividend_yield"), decimals=2, strip=False
+            )
+            dividend_date = str(item.get("index_dividend_yield_date") or "").strip()
+            suffix = f" ({dividend_date})" if dividend_date else ""
+            lines.append(f"  指数股息率: {dividend_text}{suffix}")
+
+        metrics_parts: List[str] = []
+        for metric_name in ("PE(TTM)", "PB(LF)", "PS(TTM)"):
+            metric = get_index_valuation_metric(item, metric_name)
+            if not metric:
+                continue
+            current = format_optional_number(metric.get("current"), decimals=2, strip=False)
+            metrics_parts.append(f"{metric_name} {current}")
+        if metrics_parts:
+            valuation_date = str(item.get("index_valuation_date") or "").strip()
+            suffix = f" ({valuation_date})" if valuation_date else ""
+            lines.append(f"  估值{suffix}: " + ", ".join(metrics_parts))
+
+        blocks.append("\n".join(lines))
+
+    return "\n".join(blocks)
+
+
+def _render_email_kv_row(label: str, value_html: str) -> str:
+    label_style = (
+        f"padding:4px 14px 4px 0;color:{EMAIL_LABEL_COLOR};"
+        "white-space:nowrap;vertical-align:top"
+    )
+    value_style = "padding:4px 0;vertical-align:top;word-break:break-word"
+    return (
+        f'<tr><td style="{label_style}">{escape(label)}</td>'
+        f'<td style="{value_style}">{value_html}</td></tr>'
+    )
+
+
+def _render_email_percentile_section(item: Dict) -> str:
+    rows_html: List[str] = []
+    td_style = "padding:6px 10px;border-bottom:1px solid #eee;white-space:nowrap"
+    td_num_style = f"{td_style};text-align:right"
+
+    for metric_name in ("PE(TTM)", "PB(LF)", "PS(TTM)"):
+        metric = get_index_valuation_metric(item, metric_name)
+        if not metric:
+            continue
+        percentiles = metric.get("percentiles") if isinstance(metric.get("percentiles"), dict) else {}
+        current_cell = format_optional_number(metric.get("current"), decimals=2, strip=False)
+        cells = [
+            f'<td style="{td_style}">{escape(metric_name)}</td>',
+            f'<td style="{td_num_style}">{escape(current_cell)}</td>',
+        ]
+        for label in EMAIL_PERCENTILE_LABELS:
+            cell_value = format_optional_percent(
+                percentiles.get(label), decimals=2, strip=False
+            )
+            cells.append(f'<td style="{td_num_style}">{escape(cell_value)}</td>')
+        rows_html.append(f'<tr>{"".join(cells)}</tr>')
+
+    if not rows_html:
+        return ""
+
+    th_style = (
+        "padding:6px 10px;border-bottom:2px solid #333;"
+        "background:#f0f0f0;font-weight:700;white-space:nowrap"
+    )
+    headers_html = (
+        f'<th style="{th_style};text-align:left">指标</th>'
+        f'<th style="{th_style};text-align:right">当前值</th>'
+        + "".join(
+            f'<th style="{th_style};text-align:right">{escape(label)}</th>'
+            for label in EMAIL_PERCENTILE_LABELS
         )
-    return "\n".join(lines)
+    )
+
+    valuation_date = str(item.get("index_valuation_date") or "").strip()
+    heading_suffix = (
+        f' <span style="color:{EMAIL_MUTED_COLOR};font-size:13px;font-weight:400">'
+        f'({escape(valuation_date)})</span>'
+        if valuation_date
+        else ""
+    )
+
+    return (
+        f'<div style="font-weight:700;margin:14px 0 6px">估值分位{heading_suffix}</div>'
+        '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch">'
+        '<table cellpadding="0" cellspacing="0" border="0" '
+        'style="border-collapse:collapse;font-size:13px">'
+        f'<thead><tr>{headers_html}</tr></thead>'
+        f'<tbody>{"".join(rows_html)}</tbody>'
+        '</table></div>'
+    )
+
+
+def _render_email_item_card(item: Dict) -> str:
+    name = escape(str(item["name"]))
+    code = escape(str(item["code"]))
+
+    drawdown_pct = item["drawdown"] * 100
+    drawdown_text = f"-{format_percent(drawdown_pct, decimals=2, strip=False)}%"
+    current_price = escape(format_number(item["current_price"], decimals=4, strip=False))
+    peak_price = escape(format_number(item["peak_price"], decimals=4, strip=False))
+    peak_date = escape(str(item["peak_date"]))
+
+    kv_rows = [
+        _render_email_kv_row(
+            "当前回撤",
+            f'<span style="color:{EMAIL_ALERT_COLOR};font-weight:700">'
+            f"{escape(drawdown_text)}</span>",
+        ),
+        _render_email_kv_row("当前价格", current_price),
+        _render_email_kv_row(
+            "历史高点",
+            f'{peak_price} <span style="color:{EMAIL_MUTED_COLOR}">({peak_date})</span>',
+        ),
+    ]
+
+    index_code = str(item.get("index_code") or "").strip()
+    index_name = str(item.get("index_name") or item.get("index_short_name") or "").strip()
+    if index_name or index_code:
+        parts: List[str] = []
+        if index_name:
+            parts.append(escape(index_name))
+        if index_code:
+            parts.append(
+                f'<span style="color:{EMAIL_MUTED_COLOR}">({escape(index_code)})</span>'
+            )
+        kv_rows.append(_render_email_kv_row("追踪指数", " ".join(parts)))
+
+    if item.get("index_dividend_yield") is not None:
+        dividend_text = format_optional_percent(
+            item.get("index_dividend_yield"), decimals=2, strip=False
+        )
+        dividend_date = str(item.get("index_dividend_yield_date") or "").strip()
+        date_suffix = (
+            f' <span style="color:{EMAIL_MUTED_COLOR}">({escape(dividend_date)})</span>'
+            if dividend_date
+            else ""
+        )
+        kv_rows.append(
+            _render_email_kv_row("指数股息率", f"{escape(dividend_text)}{date_suffix}")
+        )
+
+    kv_table = (
+        '<table cellpadding="0" cellspacing="0" border="0" '
+        'style="border-collapse:collapse;font-size:14px;margin:2px 0 0 0">'
+        f'<tbody>{"".join(kv_rows)}</tbody></table>'
+    )
+
+    percentile_section = _render_email_percentile_section(item)
+
+    card_style = (
+        f"border:1px solid {EMAIL_BORDER_COLOR};border-radius:6px;"
+        "padding:14px 16px;margin:14px 0;background:#fafafa"
+    )
+    header_style = "font-size:16px;font-weight:700;margin:0 0 8px 0;color:#222"
+
+    return (
+        f'<div style="{card_style}">'
+        f'<div style="{header_style}">{name}'
+        f' <span style="color:{EMAIL_MUTED_COLOR};font-weight:400;font-size:14px">({code})</span>'
+        f'</div>'
+        f'{kv_table}'
+        f'{percentile_section}'
+        '</div>'
+    )
 
 
 def build_email_html_content(triggered_items: List[Dict], current_time: Optional[datetime] = None) -> str:
     now_str = escape((current_time or now_in_beijing()).strftime("%Y-%m-%d %H:%M:%S"))
-    summary_rows = []
-    percentile_rows = []
-    percentile_labels = ["3M", "6M", "1Y", "2Y", "3Y", "5Y", "10Y", "今年以来", "成立以来"]
-    for item in triggered_items:
-        drawdown_text = f"-{format_percent(item['drawdown'] * 100, decimals=2)}%"
-        current_price = format_number(item["current_price"], decimals=4)
-        peak_price = format_number(item["peak_price"], decimals=4)
+    cards_html = "".join(_render_email_item_card(item) for item in triggered_items)
 
-        dividend_text = format_optional_percent(item.get("index_dividend_yield"), decimals=2)
-        index_code = str(item.get("index_code") or "").strip() or "-"
-        index_name = str(item.get("index_name") or item.get("index_short_name") or "").strip() or "-"
-        dividend_date = str(item.get("index_dividend_yield_date") or "").strip() or "-"
-        valuation_date = str(item.get("index_valuation_date") or "").strip() or "-"
-        pe_ttm = format_optional_number(get_index_valuation_metric(item, "PE(TTM)").get("current"), decimals=2)
-        pb_lf = format_optional_number(get_index_valuation_metric(item, "PB(LF)").get("current"), decimals=2)
-        ps_ttm = format_optional_number(get_index_valuation_metric(item, "PS(TTM)").get("current"), decimals=2)
-
-        summary_rows.append(
-            "<tr>"
-            f"<td>{escape(str(item['name']))}</td>"
-            f"<td>{escape(str(item['code']))}</td>"
-            f"<td style=\"color:#d93025;font-weight:700;\">{escape(drawdown_text)}</td>"
-            f"<td>{escape(current_price)}</td>"
-            f"<td>{escape(peak_price)}</td>"
-            f"<td>{escape(str(item['peak_date']))}</td>"
-            f"<td>{escape(index_code)}</td>"
-            f"<td>{escape(index_name)}</td>"
-            f"<td>{escape(dividend_text)}</td>"
-            f"<td>{escape(dividend_date)}</td>"
-            f"<td>{escape(pe_ttm)}</td>"
-            f"<td>{escape(pb_lf)}</td>"
-            f"<td>{escape(ps_ttm)}</td>"
-            f"<td>{escape(valuation_date)}</td>"
-            "</tr>"
-        )
-
-        for metric_name in ["PE(TTM)", "PB(LF)", "PS(TTM)"]:
-            metric = get_index_valuation_metric(item, metric_name)
-            if not metric:
-                continue
-            percentiles = metric.get("percentiles") if isinstance(metric.get("percentiles"), dict) else {}
-            percentile_cells = "".join(
-                f"<td>{escape(format_optional_percent(percentiles.get(label), decimals=2))}</td>"
-                for label in percentile_labels
-            )
-            percentile_rows.append(
-                "<tr>"
-                f"<td>{escape(str(item['name']))}</td>"
-                f"<td>{escape(index_code)}</td>"
-                f"<td>{escape(metric_name)}</td>"
-                f"<td>{escape(format_optional_number(metric.get('current'), decimals=2))}</td>"
-                f"{percentile_cells}"
-                "</tr>"
-            )
-
-    valuation_section = ""
-    if percentile_rows:
-        valuation_section = (
-            "<h3>指数估值分位</h3>"
-            "<table border=\"1\" cellpadding=\"8\" cellspacing=\"0\" "
-            "style=\"border-collapse:collapse;font-family:Arial,'Microsoft YaHei',sans-serif;font-size:14px;\">"
-            "<thead><tr style=\"background:#f6f8fa;\">"
-            "<th>标的</th><th>追踪指数</th><th>指标</th><th>当前值</th>"
-            "<th>3M</th><th>6M</th><th>1Y</th><th>2Y</th><th>3Y</th><th>5Y</th><th>10Y</th>"
-            "<th>今年以来</th><th>成立以来</th>"
-            "</tr></thead>"
-            f"<tbody>{''.join(percentile_rows)}</tbody>"
-            "</table>"
-        )
+    outer_style = (
+        "max-width:820px;margin:20px auto;padding:16px;"
+        f"background:#fff;border:1px solid #ddd;{EMAIL_BASE_FONT}"
+    )
+    banner_style = (
+        f"background:{EMAIL_ACCENT_COLOR};color:#fff;padding:10px 14px;"
+        "margin:-16px -16px 14px;font-size:16px;font-weight:700"
+    )
+    time_style = f"color:{EMAIL_LABEL_COLOR};margin-bottom:4px"
 
     return (
-        "<!doctype html>"
-        "<html><body>"
-        "<h2>📉 核心标的监控告警</h2>"
-        f"<p>触发时间: {now_str}</p>"
-        "<h3>告警汇总</h3>"
-        "<table border=\"1\" cellpadding=\"8\" cellspacing=\"0\" "
-        "style=\"border-collapse:collapse;font-family:Arial,'Microsoft YaHei',sans-serif;font-size:14px;\">"
-        "<thead><tr style=\"background:#f6f8fa;\">"
-        "<th>标的</th><th>代码</th><th>当前回撤</th><th>当前价格</th>"
-        "<th>历史高点</th><th>高点日期</th><th>追踪指数</th><th>指数名称</th>"
-        "<th>指数股息率</th><th>股息率日期</th><th>PE(TTM)</th><th>PB(LF)</th><th>PS(TTM)</th><th>估值日期</th>"
-        "</tr></thead>"
-        f"<tbody>{''.join(summary_rows)}</tbody>"
-        "</table>"
-        f"{valuation_section}"
-        "</body></html>"
+        '<!doctype html>'
+        '<html><head><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width,initial-scale=1">'
+        '<title>核心标的监控告警</title></head>'
+        '<body style="margin:0;background:#f5f5f5">'
+        f'<div style="{outer_style}">'
+        f'<div style="{banner_style}">📉 核心标的监控告警</div>'
+        f'<div style="{time_style}">触发时间: {now_str}</div>'
+        f'{cards_html}'
+        '</div></body></html>'
     )
 
 

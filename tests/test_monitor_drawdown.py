@@ -345,12 +345,17 @@ def test_build_email_html_content_uses_table_and_escapes_values():
     )
 
     assert "<table" in content
+    assert '<meta charset="utf-8">' in content
     assert "红利低波100ETF &amp; 博时" in content
-    assert "<h3>告警汇总</h3>" in content
-    assert "<h3>指数估值分位</h3>" in content
-    assert "<td>中证红利低波动100指数</td>" in content
-    assert "<th>指数股息率</th>" in content
-    assert "<td>5.23%</td>" in content
-    assert "<td>10.85</td>" in content
-    assert "<td>PE(TTM)</td>" in content
-    assert "<td>75.44%</td>" in content
+    assert "核心标的监控告警" in content
+    assert "估值分位" in content
+    assert "中证红利低波动100指数" in content
+    assert "指数股息率" in content
+    assert "5.23%" in content
+    assert ">10.85<" in content
+    assert ">PE(TTM)<" in content
+    assert ">75.44%<" in content
+    assert ">100.00%<" in content
+    assert ">98.20%<" in content
+    assert "color:#d93025" in content
+    assert "-5.20%" in content
