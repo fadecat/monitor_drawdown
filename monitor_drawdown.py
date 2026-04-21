@@ -1033,7 +1033,7 @@ def load_email_config_from_env() -> Optional[Dict]:
     }
 
 
-EMAIL_PERCENTILE_LABELS = ["3M", "6M", "1Y", "2Y", "3Y", "5Y", "10Y", "今年以来", "成立以来"]
+EMAIL_PERCENTILE_LABELS = ["1Y", "3Y", "5Y"]
 EMAIL_ACCENT_COLOR = "#2c7be5"
 EMAIL_ALERT_COLOR = "#d93025"
 EMAIL_HIGH_COLOR = "#D93026"
@@ -1120,7 +1120,7 @@ def _render_email_summary_table(triggered_items: List[Dict]) -> str:
     td_style = "padding:6px 10px;border-bottom:1px solid #eee;white-space:nowrap"
     td_num_style = f"{td_style};text-align:right"
 
-    headers = ["状态", "标的", "回撤", "当前价", "历史高点", "追踪指数", "股息率"]
+    headers = ["标的", "股息率", "回撤", "当前价", "历史高点"]
     thead = "".join(f'<th style="{th_style}">{escape(h)}</th>' for h in headers)
 
     body_rows: List[str] = []
@@ -1131,20 +1131,6 @@ def _render_email_summary_table(triggered_items: List[Dict]) -> str:
         current_price = escape(format_number(item["current_price"], decimals=4, strip=False))
         peak_price = escape(format_number(item["peak_price"], decimals=4, strip=False))
         peak_date = escape(str(item["peak_date"]))
-
-        index_code = str(item.get("index_code") or "").strip()
-        index_name = str(item.get("index_name") or item.get("index_short_name") or "").strip()
-        if index_name and index_code:
-            index_cell = (
-                f"{escape(index_name)}"
-                f' <span style="color:{EMAIL_MUTED_COLOR}">({escape(index_code)})</span>'
-            )
-        elif index_name:
-            index_cell = escape(index_name)
-        elif index_code:
-            index_cell = f'<span style="color:{EMAIL_MUTED_COLOR}">({escape(index_code)})</span>'
-        else:
-            index_cell = "-"
 
         if item.get("index_dividend_yield") is not None:
             div_text = format_optional_percent(
@@ -1166,11 +1152,11 @@ def _render_email_summary_table(triggered_items: List[Dict]) -> str:
             dividend_cell = "-"
 
         cells = [
-            f'<td style="{td_style};text-align:center;font-size:16px">📉</td>',
             (
                 f'<td style="{td_style}">{name}'
                 f' <span style="color:{EMAIL_MUTED_COLOR};font-size:12px">({code})</span></td>'
             ),
+            f'<td style="{td_style}">{dividend_cell}</td>',
             (
                 f'<td style="{td_num_style}">'
                 f'<b style="color:{EMAIL_ALERT_COLOR}">{escape(drawdown_text)}</b></td>'
@@ -1180,8 +1166,6 @@ def _render_email_summary_table(triggered_items: List[Dict]) -> str:
                 f'<td style="{td_style}">{peak_price}'
                 f' <span style="color:{EMAIL_MUTED_COLOR};font-size:12px">({peak_date})</span></td>'
             ),
-            f'<td style="{td_style}">{index_cell}</td>',
-            f'<td style="{td_style}">{dividend_cell}</td>',
         ]
         body_rows.append(f'<tr>{"".join(cells)}</tr>')
 
@@ -1232,18 +1216,27 @@ def _render_email_item_percentile_block(item: Dict) -> str:
 
     name = escape(str(item["name"]))
     code = escape(str(item["code"]))
+    index_code = str(item.get("index_code") or "").strip()
+    index_name = str(item.get("index_name") or item.get("index_short_name") or "").strip()
     valuation_date = str(item.get("index_valuation_date") or "").strip()
-    date_suffix = (
-        f' · <span style="color:{EMAIL_MUTED_COLOR};font-weight:400;font-size:13px">'
-        f'估值日期 {escape(valuation_date)}</span>'
-        if valuation_date
-        else ""
+
+    meta_parts: List[str] = []
+    if index_name:
+        meta_parts.append(escape(index_name))
+    if index_code:
+        meta_parts.append(f'({escape(index_code)})')
+    if valuation_date:
+        meta_parts.append(f'估值日期 {escape(valuation_date)}')
+    meta_str = (
+        f' <span style="color:{EMAIL_MUTED_COLOR};font-weight:400;font-size:13px">'
+        f'{"  ·  ".join(meta_parts)}</span>'
+        if meta_parts else ""
     )
 
     return (
         f'<div style="margin:16px 0 6px;font-weight:700;font-size:14px">{name}'
         f' <span style="color:{EMAIL_MUTED_COLOR};font-weight:400;font-size:13px">({code})</span>'
-        f'{date_suffix}</div>'
+        f'{meta_str}</div>'
         '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch">'
         '<table cellpadding="0" cellspacing="0" border="0" '
         'style="border-collapse:collapse;font-size:13px">'

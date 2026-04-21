@@ -354,12 +354,13 @@ def test_build_email_html_content_uses_table_and_escapes_values():
     assert "5.23%" in content
     assert ">10.85<" in content
     assert ">PE(TTM)<" in content
-    # extreme percentile values get color markup
-    assert f'color:#D93026">100.00%' in content
-    assert f'color:#D93026">98.20%' in content
-    assert ">75.44%<" in content
+    # extreme percentile values get color markup (only 1Y/3Y/5Y retained)
+    assert 'color:#D93026">98.20%' in content
     assert "color:#d93025" in content
     assert "-5.20%" in content
-    # dividend stands out with special styling
+    # dividend badge styling
     assert "💰" in content
     assert "color:#e67e22" in content
+    # removed columns
+    assert "追踪指数" not in content
+    assert "<th" in content  # table headers present
