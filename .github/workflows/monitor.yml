@@ -35,6 +35,8 @@ jobs:
           WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
           JISILU_USERNAME: ${{ secrets.JISILU_USERNAME }}
           JISILU_PASSWORD: ${{ secrets.JISILU_PASSWORD }}
+          RECEIVER_EMAIL: ${{ secrets.RECEIVER_EMAIL }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
           CONFIG_PATH: ./config.yaml
         run: python monitor_drawdown.py
-

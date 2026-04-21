@@ -2,12 +2,17 @@ targets:
   - name: "红利低波100ETF(博时)"
     code: "159307"
     type: "etf"
+    tracking_index_code: "930955"
+    index_detail_url: "https://www.etf.com.cn/api/etf-api-service/index/detail?indexCode=930955"
+    index_dividend_yield_url: "https://cdn.efunds.com.cn/etf-net/index_dividend_ratio_930955.json"
     threshold: 0.05
     lookback_days: 120
 
   - name: "价值100ETF"
     code: "512040"
     type: "etf"
+    tracking_index_code: "931052"
+    index_detail_url: "https://www.etf.com.cn/api/etf-api-service/index/detail?indexCode=931052"
     threshold: 0.05
     lookback_days: 120
 

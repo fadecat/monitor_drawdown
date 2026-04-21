@@ -1,7 +1,10 @@
 import os
+import smtplib
 import time
 from datetime import datetime, timedelta, timezone
-from typing import Callable, Dict, List, Optional, Tuple
+from email.message import EmailMessage
+from html import escape
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import akshare as ak
 import pandas as pd
@@ -21,6 +24,16 @@ except ImportError:  # pragma: no cover
 
 DEFAULT_TICKFLOW_FREE_BASE_URL = "https://free-api.tickflow.org"
 DEFAULT_TICKFLOW_DAILY_COUNT = 500
+DEFAULT_INDEX_DETAIL_URL_TEMPLATE = "https://www.etf.com.cn/api/etf-api-service/index/detail?indexCode={index_code}"
+DEFAULT_INDEX_DIVIDEND_YIELD_URL_TEMPLATE = (
+    "https://cdn.efunds.com.cn/etf-net/index_dividend_ratio_{index_code}.json"
+)
+DEFAULT_INDEX_VALUATION_PERCENTILE_URL_TEMPLATE = (
+    "https://cdn.efunds.com.cn/etf-net/index_valuation_percentile_{index_code}.json"
+)
+DEFAULT_EMAIL_SMTP_HOST = "smtp.qq.com"
+DEFAULT_EMAIL_SMTP_PORT = 465
+DEFAULT_EMAIL_SUBJECT = "核心标的监控告警"
 
 
 BEIJING_TZ = timezone(timedelta(hours=8))
@@ -319,7 +332,7 @@ def is_retryable_error(exc: Exception) -> bool:
     return any(keyword in message for keyword in retry_keywords)
 
 
-def run_with_retry(name: str, fn: Callable[[], pd.DataFrame], retries: int = 3, base_sleep: float = 1.5) -> pd.DataFrame:
+def run_with_retry(name: str, fn: Callable[[], Any], retries: int = 3, base_sleep: float = 1.5) -> Any:
     last_error: Optional[Exception] = None
     for attempt in range(1, retries + 1):
         try:
@@ -339,6 +352,238 @@ def run_with_retry(name: str, fn: Callable[[], pd.DataFrame], retries: int = 3, 
     if last_error:
         raise last_error
     raise RuntimeError(f"{name} 调用失败")
+
+
+def build_index_detail_url(index_code: str) -> str:
+    digits = extract_index_digits(index_code)
+    if not digits:
+        raise ValueError(f"无法识别追踪指数代码: {index_code}")
+    return DEFAULT_INDEX_DETAIL_URL_TEMPLATE.format(index_code=digits)
+
+
+def build_index_dividend_yield_url(index_code: str) -> str:
+    digits = extract_index_digits(index_code)
+    if not digits:
+        raise ValueError(f"无法识别追踪指数代码: {index_code}")
+    return DEFAULT_INDEX_DIVIDEND_YIELD_URL_TEMPLATE.format(index_code=digits)
+
+
+def build_index_valuation_percentile_url(index_code: str) -> str:
+    digits = extract_index_digits(index_code)
+    if not digits:
+        raise ValueError(f"无法识别追踪指数代码: {index_code}")
+    return DEFAULT_INDEX_VALUATION_PERCENTILE_URL_TEMPLATE.format(index_code=digits)
+
+
+def fetch_json_response(name: str, url: str) -> object:
+    response = run_with_retry(name, lambda: requests.get(url, timeout=15))
+    response.raise_for_status()
+    return response.json()
+
+
+def parse_index_detail_response(payload: object, fallback_index_code: str = "") -> Dict:
+    if not isinstance(payload, dict):
+        raise ValueError("追踪指数详情接口返回格式异常")
+
+    data = payload.get("data")
+    if not isinstance(data, dict):
+        raise ValueError("追踪指数详情接口缺少 data")
+
+    return {
+        "index_code": str(data.get("trdCode") or fallback_index_code).strip(),
+        "index_name": str(data.get("indexName") or "").strip(),
+        "index_short_name": str(data.get("indexSht") or "").strip(),
+        "index_type": str(data.get("indexType") or "").strip(),
+        "index_detail_url": "",
+        "index_dividend_yield_url": str(data.get("dividendRatioJson") or "").strip(),
+        "index_valuation_percentile_url": str(data.get("valuationPercentileJson") or "").strip(),
+    }
+
+
+def fetch_index_detail(index_code: str, url: str = "") -> Dict:
+    source_url = url.strip() if url else build_index_detail_url(index_code)
+    result = parse_index_detail_response(fetch_json_response("index_detail", source_url), fallback_index_code=index_code)
+    result["index_detail_url"] = source_url
+    return result
+
+
+def parse_index_dividend_yield_rows(rows: object, fallback_index_code: str = "") -> Dict:
+    if not isinstance(rows, list):
+        raise ValueError("追踪指数股息率接口返回格式异常")
+
+    latest: Optional[Dict] = None
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+
+        dividend_yield = parse_float(row.get("dividendYield"))
+        trade_date = parse_optional_date(row.get("trdDt"))
+        if dividend_yield is None or trade_date is None:
+            continue
+
+        index_code = str(row.get("trdCode") or fallback_index_code).strip()
+        parsed = {
+            "index_code": index_code,
+            "index_dividend_yield": dividend_yield,
+            "index_dividend_yield_date": trade_date.strftime("%Y-%m-%d"),
+        }
+        if latest is None or trade_date > pd.Timestamp(latest["index_dividend_yield_date"]):
+            latest = parsed
+
+    if latest is None:
+        raise ValueError("追踪指数股息率接口未返回有效数据")
+    return latest
+
+
+def fetch_index_dividend_yield(index_code: str, url: str = "") -> Dict:
+    source_url = url.strip() if url else build_index_dividend_yield_url(index_code)
+    result = parse_index_dividend_yield_rows(
+        fetch_json_response("index_dividend_ratio", source_url),
+        fallback_index_code=index_code,
+    )
+    result["index_dividend_yield_source"] = source_url
+    return result
+
+
+INDEX_VALUATION_METRIC_FIELDS = {
+    "PE(TTM)": {
+        "current": "pETtm",
+        "percentiles": {
+            "3M": "pETtm3M",
+            "6M": "pETtm6M",
+            "1Y": "pETtm1Y",
+            "2Y": "pETtm2Y",
+            "3Y": "pETtm3Y",
+            "5Y": "pETtm5Y",
+            "10Y": "pETtm10Y",
+            "今年以来": "pETtmTY",
+            "成立以来": "pETtmBgn",
+        },
+    },
+    "PB(LF)": {
+        "current": "pBLf",
+        "percentiles": {
+            "3M": "pBLf3M",
+            "6M": "pBLf6M",
+            "1Y": "pBLf1Y",
+            "2Y": "pBLf2Y",
+            "3Y": "pBLf3Y",
+            "5Y": "pBLf5Y",
+            "10Y": "pBLf10Y",
+            "今年以来": "pBLfTY",
+            "成立以来": "pBLfBgn",
+        },
+    },
+    "PS(TTM)": {
+        "current": "pSTtm",
+        "percentiles": {
+            "3M": "pSTtm3M",
+            "6M": "pSTtm6M",
+            "1Y": "pSTtm1Y",
+            "2Y": "pSTtm2Y",
+            "3Y": "pSTtm3Y",
+            "5Y": "pSTtm5Y",
+            "10Y": "pSTtm10Y",
+            "今年以来": "pSTtmTY",
+            "成立以来": "pSTtmBgn",
+        },
+    },
+}
+
+
+def parse_index_valuation_percentile_rows(rows: object, fallback_index_code: str = "") -> Dict:
+    if not isinstance(rows, list):
+        raise ValueError("追踪指数估值分位接口返回格式异常")
+
+    latest_row: Optional[Dict] = None
+    latest_date: Optional[pd.Timestamp] = None
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        trade_date = parse_optional_date(row.get("trdDt"))
+        if trade_date is None:
+            continue
+        if latest_date is None or trade_date > latest_date:
+            latest_row = row
+            latest_date = trade_date
+
+    if latest_row is None or latest_date is None:
+        raise ValueError("追踪指数估值分位接口未返回有效数据")
+
+    metrics: Dict[str, Dict] = {}
+    for metric_name, fields in INDEX_VALUATION_METRIC_FIELDS.items():
+        current = parse_float(latest_row.get(fields["current"]))
+        percentiles = {
+            label: parse_float(latest_row.get(source_field))
+            for label, source_field in fields["percentiles"].items()
+        }
+        if current is not None or any(value is not None for value in percentiles.values()):
+            metrics[metric_name] = {
+                "current": current,
+                "percentiles": percentiles,
+            }
+
+    if not metrics:
+        raise ValueError("追踪指数估值分位接口未返回有效估值字段")
+
+    return {
+        "index_code": str(latest_row.get("trdCode") or fallback_index_code).strip(),
+        "index_valuation_date": latest_date.strftime("%Y-%m-%d"),
+        "index_valuation_metrics": metrics,
+    }
+
+
+def fetch_index_valuation_percentile(index_code: str, url: str = "") -> Dict:
+    source_url = url.strip() if url else build_index_valuation_percentile_url(index_code)
+    result = parse_index_valuation_percentile_rows(
+        fetch_json_response("index_valuation_percentile", source_url),
+        fallback_index_code=index_code,
+    )
+    result["index_valuation_percentile_source"] = source_url
+    return result
+
+
+def resolve_target_index_code(target: Dict) -> str:
+    target_type = str(target.get("type", "")).strip().lower()
+    index_code = str(target.get("tracking_index_code") or target.get("index_code") or "").strip()
+    code = str(target.get("code") or "").strip()
+    if index_code:
+        return index_code
+    if target_type == "index":
+        return code
+    return ""
+
+
+def fetch_target_index_metrics(target: Dict) -> Optional[Dict]:
+    index_code = resolve_target_index_code(target)
+    detail_url = str(target.get("index_detail_url") or "").strip()
+    dividend_url = str(target.get("index_dividend_yield_url") or "").strip()
+    valuation_url = str(target.get("index_valuation_percentile_url") or "").strip()
+    if not index_code and not detail_url and not dividend_url and not valuation_url:
+        return None
+
+    result: Dict = {}
+    if index_code or detail_url:
+        detail = fetch_index_detail(index_code, url=detail_url)
+        result.update({key: value for key, value in detail.items() if value not in {"", None}})
+        index_code = str(result.get("index_code") or index_code).strip()
+
+    dividend_url = dividend_url or str(result.get("index_dividend_yield_url") or "").strip()
+    if index_code or dividend_url:
+        result.update(fetch_index_dividend_yield(index_code, url=dividend_url))
+
+    valuation_url = valuation_url or str(result.get("index_valuation_percentile_url") or "").strip()
+    if index_code or valuation_url:
+        result.update(fetch_index_valuation_percentile(index_code, url=valuation_url))
+
+    return result or None
+
+
+def fetch_target_index_dividend_yield(target: Dict) -> Optional[Dict]:
+    metrics = fetch_target_index_metrics(target)
+    if not metrics or "index_dividend_yield" not in metrics:
+        return None
+    return metrics
 
 
 def fetch_etf_data(code: str, start_date: str, end_date: str) -> pd.DataFrame:
@@ -674,6 +919,41 @@ def format_percent(value: float, decimals: int = 2) -> str:
     return text if text else "0"
 
 
+def format_optional_number(value: object, decimals: int = 2) -> str:
+    parsed = parse_float(value)
+    if parsed is None:
+        return "-"
+    return format_number(parsed, decimals=decimals)
+
+
+def format_optional_percent(value: object, decimals: int = 2) -> str:
+    parsed = parse_float(value)
+    if parsed is None:
+        return "-"
+    return f"{format_percent(parsed, decimals=decimals)}%"
+
+
+def build_index_dividend_yield_line(item: Dict) -> Optional[str]:
+    dividend_yield = item.get("index_dividend_yield")
+    if dividend_yield is None:
+        return None
+
+    dividend_yield_text = format_percent(float(dividend_yield), decimals=2)
+    index_code = str(item.get("index_code") or "").strip()
+    trade_date = str(item.get("index_dividend_yield_date") or "").strip()
+    suffix_parts = [part for part in [index_code, trade_date] if part]
+    suffix = f" ({', '.join(suffix_parts)})" if suffix_parts else ""
+    return f"> 追踪指数股息率: **{dividend_yield_text}%**{suffix}"
+
+
+def get_index_valuation_metric(item: Dict, metric_name: str) -> Dict:
+    metrics = item.get("index_valuation_metrics")
+    if not isinstance(metrics, dict):
+        return {}
+    metric = metrics.get(metric_name)
+    return metric if isinstance(metric, dict) else {}
+
+
 def build_webhook_markdown_content(triggered_items: List[Dict], current_time: Optional[datetime] = None) -> str:
     now_str = (current_time or now_in_beijing()).strftime("%Y-%m-%d %H:%M:%S")
     lines = [
@@ -689,27 +969,26 @@ def build_webhook_markdown_content(triggered_items: List[Dict], current_time: Op
         current_price = format_number(item["current_price"], decimals=4)
         peak_price = format_number(item["peak_price"], decimals=4)
         peak_date = item["peak_date"]
+        dividend_yield_line = build_index_dividend_yield_line(item)
 
         if abs(drawdown_pct) < 1e-8:
-            lines.extend(
-                [
-                    f"🚀 **{name} ({code})**",
-                    "> 突破状态: <font color=\"info\">**创近期新高！**</font>",
-                    f"> 当前价格: **{current_price}**",
-                    "",
-                ]
-            )
+            item_lines = [
+                f"🚀 **{name} ({code})**",
+                "> 突破状态: <font color=\"info\">**创近期新高！**</font>",
+                f"> 当前价格: **{current_price}**",
+            ]
         else:
             drawdown_text = format_percent(drawdown_pct, decimals=2)
-            lines.extend(
-                [
-                    f"🔻 **{name} ({code})**",
-                    f"> 当前回撤: <font color=\"warning\">**-{drawdown_text}%**</font>",
-                    f"> 当前价格: **{current_price}**",
-                    f"> 历史高点: {peak_price} ({peak_date})",
-                    "",
-                ]
-            )
+            item_lines = [
+                f"🔻 **{name} ({code})**",
+                f"> 当前回撤: <font color=\"warning\">**-{drawdown_text}%**</font>",
+                f"> 当前价格: **{current_price}**",
+                f"> 历史高点: {peak_price} ({peak_date})",
+            ]
+
+        if dividend_yield_line:
+            item_lines.append(dividend_yield_line)
+        lines.extend([*item_lines, ""])
 
     return "\n".join(lines).strip()
 
@@ -719,6 +998,180 @@ def build_webhook_payload(triggered_items: List[Dict], current_time: Optional[da
         "msgtype": "markdown",
         "markdown": {"content": build_webhook_markdown_content(triggered_items, current_time=current_time)},
     }
+
+
+def split_email_recipients(value: str) -> List[str]:
+    recipients: List[str] = []
+    for chunk in value.replace(";", ",").split(","):
+        recipient = chunk.strip()
+        if recipient:
+            recipients.append(recipient)
+    return dedupe_keep_order(recipients)
+
+
+def load_email_config_from_env() -> Optional[Dict]:
+    recipients = split_email_recipients(os.getenv("RECEIVER_EMAIL", "") or os.getenv("EMAIL_TO", ""))
+    username = (os.getenv("SMTP_USER", "") or os.getenv("EMAIL_USER", "")).strip()
+    password = (os.getenv("SMTP_PASS", "") or os.getenv("EMAIL_PASSWORD", "")).strip()
+    if not recipients and not username and not password:
+        return None
+    if not recipients or not username or not password:
+        raise RuntimeError("邮件配置不完整，需要 RECEIVER_EMAIL/SMTP_USER/SMTP_PASS")
+
+    return {
+        "smtp_host": os.getenv("EMAIL_SMTP_HOST", DEFAULT_EMAIL_SMTP_HOST).strip() or DEFAULT_EMAIL_SMTP_HOST,
+        "smtp_port": int(os.getenv("EMAIL_SMTP_PORT", str(DEFAULT_EMAIL_SMTP_PORT))),
+        "username": username,
+        "password": password,
+        "sender": os.getenv("EMAIL_FROM", username).strip() or username,
+        "recipients": recipients,
+        "subject": os.getenv("EMAIL_SUBJECT", DEFAULT_EMAIL_SUBJECT).strip() or DEFAULT_EMAIL_SUBJECT,
+    }
+
+
+def build_email_plain_text_content(triggered_items: List[Dict], current_time: Optional[datetime] = None) -> str:
+    now_str = (current_time or now_in_beijing()).strftime("%Y-%m-%d %H:%M:%S")
+    lines = [DEFAULT_EMAIL_SUBJECT, f"触发时间: {now_str}", ""]
+    for item in triggered_items:
+        drawdown_text = format_percent(item["drawdown"] * 100, decimals=2)
+        current_price = format_number(item["current_price"], decimals=4)
+        peak_price = format_number(item["peak_price"], decimals=4)
+        dividend_text = format_optional_percent(item.get("index_dividend_yield"), decimals=2)
+        index_code = str(item.get("index_code") or "").strip() or "-"
+        index_name = str(item.get("index_name") or item.get("index_short_name") or "").strip() or "-"
+        pe_ttm = format_optional_number(get_index_valuation_metric(item, "PE(TTM)").get("current"), decimals=2)
+        pb_lf = format_optional_number(get_index_valuation_metric(item, "PB(LF)").get("current"), decimals=2)
+        ps_ttm = format_optional_number(get_index_valuation_metric(item, "PS(TTM)").get("current"), decimals=2)
+
+        lines.append(
+            f"{item['name']} ({item['code']}): 回撤 -{drawdown_text}%, "
+            f"当前 {current_price}, 高点 {peak_price} ({item['peak_date']}), "
+            f"追踪指数 {index_code} {index_name}, 股息率 {dividend_text}, "
+            f"PE {pe_ttm}, PB {pb_lf}, PS {ps_ttm}"
+        )
+    return "\n".join(lines)
+
+
+def build_email_html_content(triggered_items: List[Dict], current_time: Optional[datetime] = None) -> str:
+    now_str = escape((current_time or now_in_beijing()).strftime("%Y-%m-%d %H:%M:%S"))
+    summary_rows = []
+    percentile_rows = []
+    percentile_labels = ["3M", "6M", "1Y", "2Y", "3Y", "5Y", "10Y", "今年以来", "成立以来"]
+    for item in triggered_items:
+        drawdown_text = f"-{format_percent(item['drawdown'] * 100, decimals=2)}%"
+        current_price = format_number(item["current_price"], decimals=4)
+        peak_price = format_number(item["peak_price"], decimals=4)
+
+        dividend_text = format_optional_percent(item.get("index_dividend_yield"), decimals=2)
+        index_code = str(item.get("index_code") or "").strip() or "-"
+        index_name = str(item.get("index_name") or item.get("index_short_name") or "").strip() or "-"
+        dividend_date = str(item.get("index_dividend_yield_date") or "").strip() or "-"
+        valuation_date = str(item.get("index_valuation_date") or "").strip() or "-"
+        pe_ttm = format_optional_number(get_index_valuation_metric(item, "PE(TTM)").get("current"), decimals=2)
+        pb_lf = format_optional_number(get_index_valuation_metric(item, "PB(LF)").get("current"), decimals=2)
+        ps_ttm = format_optional_number(get_index_valuation_metric(item, "PS(TTM)").get("current"), decimals=2)
+
+        summary_rows.append(
+            "<tr>"
+            f"<td>{escape(str(item['name']))}</td>"
+            f"<td>{escape(str(item['code']))}</td>"
+            f"<td style=\"color:#d93025;font-weight:700;\">{escape(drawdown_text)}</td>"
+            f"<td>{escape(current_price)}</td>"
+            f"<td>{escape(peak_price)}</td>"
+            f"<td>{escape(str(item['peak_date']))}</td>"
+            f"<td>{escape(index_code)}</td>"
+            f"<td>{escape(index_name)}</td>"
+            f"<td>{escape(dividend_text)}</td>"
+            f"<td>{escape(dividend_date)}</td>"
+            f"<td>{escape(pe_ttm)}</td>"
+            f"<td>{escape(pb_lf)}</td>"
+            f"<td>{escape(ps_ttm)}</td>"
+            f"<td>{escape(valuation_date)}</td>"
+            "</tr>"
+        )
+
+        for metric_name in ["PE(TTM)", "PB(LF)", "PS(TTM)"]:
+            metric = get_index_valuation_metric(item, metric_name)
+            if not metric:
+                continue
+            percentiles = metric.get("percentiles") if isinstance(metric.get("percentiles"), dict) else {}
+            percentile_cells = "".join(
+                f"<td>{escape(format_optional_percent(percentiles.get(label), decimals=2))}</td>"
+                for label in percentile_labels
+            )
+            percentile_rows.append(
+                "<tr>"
+                f"<td>{escape(str(item['name']))}</td>"
+                f"<td>{escape(index_code)}</td>"
+                f"<td>{escape(metric_name)}</td>"
+                f"<td>{escape(format_optional_number(metric.get('current'), decimals=2))}</td>"
+                f"{percentile_cells}"
+                "</tr>"
+            )
+
+    valuation_section = ""
+    if percentile_rows:
+        valuation_section = (
+            "<h3>指数估值分位</h3>"
+            "<table border=\"1\" cellpadding=\"8\" cellspacing=\"0\" "
+            "style=\"border-collapse:collapse;font-family:Arial,'Microsoft YaHei',sans-serif;font-size:14px;\">"
+            "<thead><tr style=\"background:#f6f8fa;\">"
+            "<th>标的</th><th>追踪指数</th><th>指标</th><th>当前值</th>"
+            "<th>3M</th><th>6M</th><th>1Y</th><th>2Y</th><th>3Y</th><th>5Y</th><th>10Y</th>"
+            "<th>今年以来</th><th>成立以来</th>"
+            "</tr></thead>"
+            f"<tbody>{''.join(percentile_rows)}</tbody>"
+            "</table>"
+        )
+
+    return (
+        "<!doctype html>"
+        "<html><body>"
+        "<h2>📉 核心标的监控告警</h2>"
+        f"<p>触发时间: {now_str}</p>"
+        "<h3>告警汇总</h3>"
+        "<table border=\"1\" cellpadding=\"8\" cellspacing=\"0\" "
+        "style=\"border-collapse:collapse;font-family:Arial,'Microsoft YaHei',sans-serif;font-size:14px;\">"
+        "<thead><tr style=\"background:#f6f8fa;\">"
+        "<th>标的</th><th>代码</th><th>当前回撤</th><th>当前价格</th>"
+        "<th>历史高点</th><th>高点日期</th><th>追踪指数</th><th>指数名称</th>"
+        "<th>指数股息率</th><th>股息率日期</th><th>PE(TTM)</th><th>PB(LF)</th><th>PS(TTM)</th><th>估值日期</th>"
+        "</tr></thead>"
+        f"<tbody>{''.join(summary_rows)}</tbody>"
+        "</table>"
+        f"{valuation_section}"
+        "</body></html>"
+    )
+
+
+def build_email_message(
+    sender: str,
+    recipients: List[str],
+    subject: str,
+    triggered_items: List[Dict],
+    current_time: Optional[datetime] = None,
+) -> EmailMessage:
+    message = EmailMessage()
+    message["From"] = sender
+    message["To"] = ", ".join(recipients)
+    message["Subject"] = subject
+    message.set_content(build_email_plain_text_content(triggered_items, current_time=current_time))
+    message.add_alternative(build_email_html_content(triggered_items, current_time=current_time), subtype="html")
+    return message
+
+
+def send_email(config: Dict, triggered_items: List[Dict], current_time: Optional[datetime] = None) -> None:
+    message = build_email_message(
+        config["sender"],
+        config["recipients"],
+        config["subject"],
+        triggered_items,
+        current_time=current_time,
+    )
+    with smtplib.SMTP_SSL(config["smtp_host"], config["smtp_port"], timeout=15) as smtp:
+        smtp.login(config["username"], config["password"])
+        smtp.send_message(message)
+    print(f"[INFO] 邮件发送成功，收件人: {', '.join(config['recipients'])}")
 
 
 def send_webhook(webhook_url: str, triggered_items: List[Dict]) -> None:
@@ -778,6 +1231,7 @@ def main() -> None:
 
         print(f"[INFO] 开始处理: {name} ({code}), type={target_type}, threshold={threshold:.2%}, lookback={lookback_days}")
         try:
+            dividend_yield_info: Optional[Dict] = None
             if target_type == "etf":
                 df = fetch_etf_data(code, start_str, end_str)
                 if jisilu_rows:
@@ -815,6 +1269,22 @@ def main() -> None:
                 print(f"[WARN] {name} ({code}) 未获取到有效数据，跳过。")
                 continue
 
+            if resolve_target_index_code(target):
+                try:
+                    dividend_yield_info = fetch_target_index_dividend_yield(target)
+                    if dividend_yield_info:
+                        valuation_date = dividend_yield_info.get("index_valuation_date")
+                        valuation_text = f"，估值日期 {valuation_date}" if valuation_date else ""
+                        print(
+                            f"[INFO] {name} ({code}) 追踪指数 "
+                            f"{dividend_yield_info.get('index_code', '')} "
+                            f"股息率 {dividend_yield_info['index_dividend_yield']:.2f}% "
+                            f"({dividend_yield_info['index_dividend_yield_date']})"
+                            f"{valuation_text}"
+                        )
+                except Exception as exc:  # noqa: BLE001
+                    print(f"[WARN] {name} ({code}) 追踪指数指标获取失败: {exc}")
+
             result = compute_drawdown(df, lookback_days)
             drawdown = result["drawdown"]
             print(
@@ -824,16 +1294,17 @@ def main() -> None:
 
             if drawdown >= threshold:
                 print(f"[ALERT] 触发阈值: {name} ({code}) 回撤 {drawdown:.2%} >= {threshold:.2%}")
-                triggered.append(
-                    {
-                        "name": name,
-                        "code": code,
-                        "drawdown": drawdown,
-                        "current_price": result["current_price"],
-                        "peak_price": result["peak_price"],
-                        "peak_date": result["peak_date"],
-                    }
-                )
+                triggered_item = {
+                    "name": name,
+                    "code": code,
+                    "drawdown": drawdown,
+                    "current_price": result["current_price"],
+                    "peak_price": result["peak_price"],
+                    "peak_date": result["peak_date"],
+                }
+                if dividend_yield_info:
+                    triggered_item.update(dividend_yield_info)
+                triggered.append(triggered_item)
             else:
                 print(f"[INFO] 未触发: {name} ({code}) 回撤 {drawdown:.2%} < {threshold:.2%}")
         except Exception as exc:  # noqa: BLE001
@@ -846,6 +1317,15 @@ def main() -> None:
             send_webhook(webhook_url, triggered)
         except Exception as exc:  # noqa: BLE001
             raise RuntimeError(f"Webhook 发送失败: {exc}") from exc
+
+        try:
+            email_config = load_email_config_from_env()
+            if email_config:
+                send_email(email_config, triggered, current_time=current_time)
+            else:
+                print("[INFO] 未配置 RECEIVER_EMAIL/SMTP_USER/SMTP_PASS，跳过邮件发送。")
+        except Exception as exc:  # noqa: BLE001
+            raise RuntimeError(f"邮件发送失败: {exc}") from exc
     else:
         print("[INFO] 本次无标的触发阈值，不发送通知。")
 

@@ -17,6 +17,8 @@
 ## 当前已实现指标
 
 - 回撤：在 `lookback_days` 窗口内，用历史最高价与当前价格计算回撤
+- 追踪指数股息率：配置 `tracking_index_code` 后，会拉取最新指数股息率并在邮件中展示
+- 追踪指数估值：通过指数详情接口自动发现估值分位 JSON，并在邮件中展示 PE(TTM)、PB(LF)、PS(TTM) 及各周期百分位
 
 当前代码核心逻辑在 `monitor_drawdown.py`，支持 ETF 与指数日线回撤监控。
 
@@ -65,13 +67,12 @@ AkShare 的 `fund_etf_spot_em` 适合补充以下实时指标：
 
 ### 4. PE-TTM / PB / 百分位
 
-目前不建议作为 ETF 版本项目的首批指标。
+PE-TTM、PB、PS 和估值百分位按“追踪指数”口径展示，不按 ETF 本体口径展示。
 
-原因：
+当前实现会读取 `index_detail_url` 或默认指数详情接口，自动发现：
 
-- ETF 本体接口里暂未确认有稳定的 `PE-TTM`、`PB`、`PE/PB 百分位` 直出字段
-- 这类指标更像“跟踪指数估值”，不属于 ETF 行情接口的标准输出
-- 如果后续要做，可能需要切到指数估值数据源，或按 ETF 跟踪标的单独适配
+- `dividendRatioJson`：指数股息率
+- `valuationPercentileJson`：指数估值和估值百分位
 
 ## 下次继续时建议优先做的事
 
@@ -88,9 +89,20 @@ $env:CALENDAR_WEBHOOK_URL="你的日历提醒 webhook"
 $env:JISILU_USERNAME="你的集思录用户名"
 $env:JISILU_PASSWORD="你的集思录密码"
 $env:CONFIG_PATH=".\config.yaml"
+$env:RECEIVER_EMAIL="xxx@qq.com,zzz@qq.com"
+$env:SMTP_USER="你的QQ邮箱"
+$env:SMTP_PASS="QQ邮箱SMTP授权码"
 python .\monitor_drawdown.py
 python .\monitor_jisilu_calendar.py
 ```
+
+如果配置了 `RECEIVER_EMAIL`、`SMTP_USER`、`SMTP_PASS`，回撤告警会在原有企业微信 webhook 之外，额外发送一封 HTML 表格邮件。
+
+- 默认 SMTP：`smtp.qq.com:465`
+- 可选覆盖：`EMAIL_SMTP_HOST`、`EMAIL_SMTP_PORT`、`EMAIL_FROM`、`EMAIL_SUBJECT`
+- `RECEIVER_EMAIL` 支持逗号分隔多个收件人，例如 `xxx@qq.com,zzz@qq.com`
+- `SMTP_PASS` 填 QQ 邮箱的 SMTP 授权码，不是网页登录密码
+- 邮件包含“告警汇总”和“指数估值分位”两张表；股息率和估值百分位均为追踪指数口径
 
 本地只想预览日志和将要发送的消息、不实际推送 webhook 时，推荐用 `preview_webhook_message.py`。
 它会优先读取系统环境变量；如果没有，再自动读取项目根目录下未跟踪的 `.env.local`。

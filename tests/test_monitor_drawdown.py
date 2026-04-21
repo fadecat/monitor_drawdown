@@ -25,6 +25,17 @@ class FakeTickFlowClient:
         self.closed = True
 
 
+class FakeResponse:
+    def __init__(self, payload):
+        self.payload = payload
+
+    def raise_for_status(self):
+        return None
+
+    def json(self):
+        return self.payload
+
+
 def test_normalize_dataframe_supports_tickflow_trade_date():
     df = pd.DataFrame(
         {
@@ -176,3 +187,170 @@ def test_patch_index_dataframe_with_jisilu_appends_synthetic_today_row():
     assert round(patch["etf_return"], 6) == round(4.498 / 4.4610 - 1, 6)
     assert patched_df["date"].dt.strftime("%Y-%m-%d").tolist() == ["2026-03-21", "2026-03-23", "2026-03-24"]
     assert round(patched_df.iloc[-1]["close"], 6) == round(4417.997 * (4.498 / 4.4610), 6)
+
+
+def test_fetch_index_dividend_yield_uses_latest_row(monkeypatch):
+    payload = [
+        {"dividendYield": 5.1234, "trdCode": "930955", "trdDt": "2026-03-20"},
+        {"dividendYield": 5.2345, "trdCode": "930955", "trdDt": "2026-03-24"},
+    ]
+    calls = []
+
+    def fake_get(url, timeout):
+        calls.append((url, timeout))
+        return FakeResponse(payload)
+
+    monkeypatch.setattr(md.requests, "get", fake_get)
+
+    result = md.fetch_index_dividend_yield(
+        "930955",
+        url="https://cdn.efunds.com.cn/etf-net/index_dividend_ratio_930955.json",
+    )
+
+    assert result["index_code"] == "930955"
+    assert result["index_dividend_yield"] == 5.2345
+    assert result["index_dividend_yield_date"] == "2026-03-24"
+    assert calls == [("https://cdn.efunds.com.cn/etf-net/index_dividend_ratio_930955.json", 15)]
+
+
+def test_parse_index_detail_response_extracts_index_metadata_and_urls():
+    result = md.parse_index_detail_response(
+        {
+            "success": True,
+            "data": {
+                "trdCode": "931052",
+                "indexName": "中证国信价值指数",
+                "indexSht": "国信价值",
+                "indexType": "风格因子-价值",
+                "dividendRatioJson": "https://cdn.efunds.com.cn/etf-net/index_dividend_ratio_931052.json",
+                "valuationPercentileJson": "https://cdn.efunds.com.cn/etf-net/index_valuation_percentile_931052.json",
+            },
+        },
+        fallback_index_code="931052",
+    )
+
+    assert result["index_code"] == "931052"
+    assert result["index_name"] == "中证国信价值指数"
+    assert result["index_dividend_yield_url"].endswith("index_dividend_ratio_931052.json")
+    assert result["index_valuation_percentile_url"].endswith("index_valuation_percentile_931052.json")
+
+
+def test_parse_index_valuation_percentile_rows_uses_latest_row():
+    result = md.parse_index_valuation_percentile_rows(
+        [
+            {"trdCode": "931052", "trdDt": "2026-03-20", "pETtm": 9.1, "pETtm1Y": 40},
+            {
+                "trdCode": "931052",
+                "trdDt": "2026-03-24",
+                "pETtm": 10.8491,
+                "pETtm3M": 100,
+                "pETtm1Y": 98.2,
+                "pBLf": 1.4048,
+                "pBLf3M": 75.4386,
+                "pSTtm": 1.7871,
+                "pSTtmBgn": 97.8282,
+            },
+        ],
+        fallback_index_code="931052",
+    )
+
+    assert result["index_code"] == "931052"
+    assert result["index_valuation_date"] == "2026-03-24"
+    assert result["index_valuation_metrics"]["PE(TTM)"]["current"] == 10.8491
+    assert result["index_valuation_metrics"]["PE(TTM)"]["percentiles"]["3M"] == 100
+    assert result["index_valuation_metrics"]["PB(LF)"]["percentiles"]["3M"] == 75.4386
+
+
+def test_build_webhook_markdown_includes_index_dividend_yield():
+    content = md.build_webhook_markdown_content(
+        [
+            {
+                "name": "红利低波100ETF(博时)",
+                "code": "159307",
+                "drawdown": 0.052,
+                "current_price": 1.058,
+                "peak_price": 1.116,
+                "peak_date": "2026-03-10",
+                "index_code": "930955",
+                "index_name": "中证红利低波动100指数",
+                "index_dividend_yield": 5.2345,
+                "index_dividend_yield_date": "2026-03-24",
+                "index_valuation_date": "2026-03-24",
+                "index_valuation_metrics": {
+                    "PE(TTM)": {"current": 10.8491, "percentiles": {"3M": 100, "1Y": 98.2}},
+                    "PB(LF)": {"current": 1.4048, "percentiles": {"3M": 75.4386}},
+                    "PS(TTM)": {"current": 1.7871, "percentiles": {"成立以来": 97.8282}},
+                },
+            }
+        ],
+        current_time=md.datetime(2026, 3, 24, 15, 30, tzinfo=md.BEIJING_TZ),
+    )
+
+    assert "> 追踪指数股息率: **5.23%** (930955, 2026-03-24)" in content
+
+
+def test_load_email_config_defaults_to_qq_smtp(monkeypatch):
+    monkeypatch.setenv("RECEIVER_EMAIL", "alice@example.com; bob@example.com,alice@example.com")
+    monkeypatch.setenv("SMTP_USER", "sender@qq.com")
+    monkeypatch.setenv("SMTP_PASS", "qq_auth_code")
+    monkeypatch.delenv("EMAIL_SMTP_HOST", raising=False)
+    monkeypatch.delenv("EMAIL_SMTP_PORT", raising=False)
+    monkeypatch.delenv("EMAIL_FROM", raising=False)
+
+    config = md.load_email_config_from_env()
+
+    assert config["smtp_host"] == "smtp.qq.com"
+    assert config["smtp_port"] == 465
+    assert config["sender"] == "sender@qq.com"
+    assert config["recipients"] == ["alice@example.com", "bob@example.com"]
+
+
+def test_load_email_config_supports_legacy_email_env_names(monkeypatch):
+    monkeypatch.setenv("EMAIL_TO", "legacy@example.com")
+    monkeypatch.setenv("EMAIL_USER", "legacy@qq.com")
+    monkeypatch.setenv("EMAIL_PASSWORD", "legacy_auth_code")
+    monkeypatch.delenv("RECEIVER_EMAIL", raising=False)
+    monkeypatch.delenv("SMTP_USER", raising=False)
+    monkeypatch.delenv("SMTP_PASS", raising=False)
+
+    config = md.load_email_config_from_env()
+
+    assert config["recipients"] == ["legacy@example.com"]
+    assert config["username"] == "legacy@qq.com"
+
+
+def test_build_email_html_content_uses_table_and_escapes_values():
+    content = md.build_email_html_content(
+        [
+            {
+                "name": "红利低波100ETF & 博时",
+                "code": "159307",
+                "drawdown": 0.052,
+                "current_price": 1.058,
+                "peak_price": 1.116,
+                "peak_date": "2026-03-10",
+                "index_code": "930955",
+                "index_name": "中证红利低波动100指数",
+                "index_dividend_yield": 5.2345,
+                "index_dividend_yield_date": "2026-03-24",
+                "index_valuation_date": "2026-03-24",
+                "index_valuation_metrics": {
+                    "PE(TTM)": {"current": 10.8491, "percentiles": {"3M": 100, "1Y": 98.2}},
+                    "PB(LF)": {"current": 1.4048, "percentiles": {"3M": 75.4386}},
+                    "PS(TTM)": {"current": 1.7871, "percentiles": {"成立以来": 97.8282}},
+                },
+            }
+        ],
+        current_time=md.datetime(2026, 3, 24, 15, 30, tzinfo=md.BEIJING_TZ),
+    )
+
+    assert "<table" in content
+    assert "红利低波100ETF &amp; 博时" in content
+    assert "<h3>告警汇总</h3>" in content
+    assert "<h3>指数估值分位</h3>" in content
+    assert "<td>中证红利低波动100指数</td>" in content
+    assert "<th>指数股息率</th>" in content
+    assert "<td>5.23%</td>" in content
+    assert "<td>10.85</td>" in content
+    assert "<td>PE(TTM)</td>" in content
+    assert "<td>75.44%</td>" in content
