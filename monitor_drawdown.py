@@ -1238,9 +1238,8 @@ def _format_equity_bond_spread_text(item: Dict) -> str:
     context = ""
     for w in ("5Y", "3Y", "10Y", "1Y"):
         if w in spread_pcts:
-            label_text, _ = _spread_label(spread_pcts[w])
             avg_note = f"，均值 {avg_10y:+.2f}%" if avg_10y is not None else ""
-            context = f" · 近{w} {label_text}（{spread_pcts[w]:.0f}%分位{avg_note}）"
+            context = f" · 近{w} {spread_pcts[w]:.0f}%分位{avg_note}"
             break
     return f"股债收益差: {ebr:+.2f}%{formula}{context}"
 
@@ -1289,13 +1288,13 @@ def _render_equity_bond_spread_line(item: Dict) -> str:
 
     context_html = ""
     if window_label is not None and window_pct is not None:
-        label_text, label_color = _spread_label(window_pct)
+        _, label_color = _spread_label(window_pct)
         avg_note = f"，均值 {avg_10y:+.2f}%" if avg_10y is not None else ""
         context_html = (
-            f' · 近{escape(window_label)} '
-            f'<b style="color:{label_color}">{escape(label_text)}</b>'
             f'<span style="color:{EMAIL_MUTED_COLOR};font-size:11px">'
-            f'（{window_pct:.0f}%分位{avg_note}）</span>'
+            f' · 近{escape(window_label)} '
+            f'<b style="color:{label_color}">{window_pct:.0f}%分位</b>'
+            f'{avg_note}</span>'
         )
 
     return (
