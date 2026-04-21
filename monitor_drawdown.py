@@ -1036,9 +1036,14 @@ def load_email_config_from_env() -> Optional[Dict]:
 EMAIL_PERCENTILE_LABELS = ["3M", "6M", "1Y", "2Y", "3Y", "5Y", "10Y", "今年以来", "成立以来"]
 EMAIL_ACCENT_COLOR = "#2c7be5"
 EMAIL_ALERT_COLOR = "#d93025"
+EMAIL_HIGH_COLOR = "#D93026"
+EMAIL_LOW_COLOR = "#1AAD19"
+EMAIL_DIVIDEND_COLOR = "#e67e22"
 EMAIL_MUTED_COLOR = "#888"
 EMAIL_LABEL_COLOR = "#666"
 EMAIL_BORDER_COLOR = "#e5e5e5"
+EMAIL_PERCENTILE_HIGH_THRESHOLD = 80.0
+EMAIL_PERCENTILE_LOW_THRESHOLD = 20.0
 EMAIL_BASE_FONT = (
     "font-family:-apple-system,BlinkMacSystemFont,'PingFang SC',"
     "'Microsoft YaHei',sans-serif;font-size:14px;line-height:1.6;color:#333"
@@ -1095,23 +1100,106 @@ def build_email_plain_text_content(triggered_items: List[Dict], current_time: Op
     return "\n".join(blocks)
 
 
-def _render_email_kv_row(label: str, value_html: str) -> str:
-    label_style = (
-        f"padding:4px 14px 4px 0;color:{EMAIL_LABEL_COLOR};"
-        "white-space:nowrap;vertical-align:top"
-    )
-    value_style = "padding:4px 0;vertical-align:top;word-break:break-word"
-    return (
-        f'<tr><td style="{label_style}">{escape(label)}</td>'
-        f'<td style="{value_style}">{value_html}</td></tr>'
-    )
+def _format_percentile_cell(value: object) -> str:
+    parsed = parse_float(value)
+    if parsed is None:
+        return "-"
+    text = escape(f"{format_percent(parsed, decimals=2, strip=False)}%")
+    if parsed >= EMAIL_PERCENTILE_HIGH_THRESHOLD:
+        return f'<b style="color:{EMAIL_HIGH_COLOR}">{text}</b>'
+    if parsed <= EMAIL_PERCENTILE_LOW_THRESHOLD:
+        return f'<b style="color:{EMAIL_LOW_COLOR}">{text}</b>'
+    return text
 
 
-def _render_email_percentile_section(item: Dict) -> str:
-    rows_html: List[str] = []
+def _render_email_summary_table(triggered_items: List[Dict]) -> str:
+    th_style = (
+        "padding:6px 10px;border-bottom:2px solid #333;"
+        "background:#f0f0f0;font-weight:700;white-space:nowrap;text-align:left"
+    )
     td_style = "padding:6px 10px;border-bottom:1px solid #eee;white-space:nowrap"
     td_num_style = f"{td_style};text-align:right"
 
+    headers = ["状态", "标的", "回撤", "当前价", "历史高点", "追踪指数", "股息率"]
+    thead = "".join(f'<th style="{th_style}">{escape(h)}</th>' for h in headers)
+
+    body_rows: List[str] = []
+    for item in triggered_items:
+        name = escape(str(item["name"]))
+        code = escape(str(item["code"]))
+        drawdown_text = f"-{format_percent(item['drawdown'] * 100, decimals=2, strip=False)}%"
+        current_price = escape(format_number(item["current_price"], decimals=4, strip=False))
+        peak_price = escape(format_number(item["peak_price"], decimals=4, strip=False))
+        peak_date = escape(str(item["peak_date"]))
+
+        index_code = str(item.get("index_code") or "").strip()
+        index_name = str(item.get("index_name") or item.get("index_short_name") or "").strip()
+        if index_name and index_code:
+            index_cell = (
+                f"{escape(index_name)}"
+                f' <span style="color:{EMAIL_MUTED_COLOR}">({escape(index_code)})</span>'
+            )
+        elif index_name:
+            index_cell = escape(index_name)
+        elif index_code:
+            index_cell = f'<span style="color:{EMAIL_MUTED_COLOR}">({escape(index_code)})</span>'
+        else:
+            index_cell = "-"
+
+        if item.get("index_dividend_yield") is not None:
+            div_text = format_optional_percent(
+                item.get("index_dividend_yield"), decimals=2, strip=False
+            )
+            div_date = str(item.get("index_dividend_yield_date") or "").strip()
+            date_suffix = (
+                f' <span style="color:{EMAIL_MUTED_COLOR};font-weight:400;font-size:12px">'
+                f'({escape(div_date)})</span>'
+                if div_date
+                else ""
+            )
+            dividend_cell = (
+                f'<span style="background:#fff4e0;padding:2px 8px;border-radius:4px;'
+                f'border:1px solid #f0c080;color:{EMAIL_DIVIDEND_COLOR};font-weight:700;'
+                f'font-size:14px">💰 {escape(div_text)}</span>{date_suffix}'
+            )
+        else:
+            dividend_cell = "-"
+
+        cells = [
+            f'<td style="{td_style};text-align:center;font-size:16px">📉</td>',
+            (
+                f'<td style="{td_style}">{name}'
+                f' <span style="color:{EMAIL_MUTED_COLOR};font-size:12px">({code})</span></td>'
+            ),
+            (
+                f'<td style="{td_num_style}">'
+                f'<b style="color:{EMAIL_ALERT_COLOR}">{escape(drawdown_text)}</b></td>'
+            ),
+            f'<td style="{td_num_style}">{current_price}</td>',
+            (
+                f'<td style="{td_style}">{peak_price}'
+                f' <span style="color:{EMAIL_MUTED_COLOR};font-size:12px">({peak_date})</span></td>'
+            ),
+            f'<td style="{td_style}">{index_cell}</td>',
+            f'<td style="{td_style}">{dividend_cell}</td>',
+        ]
+        body_rows.append(f'<tr>{"".join(cells)}</tr>')
+
+    return (
+        '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;margin:6px 0 4px">'
+        '<table cellpadding="0" cellspacing="0" border="0" '
+        'style="border-collapse:collapse;font-size:13px;width:100%">'
+        f'<thead><tr>{thead}</tr></thead>'
+        f'<tbody>{"".join(body_rows)}</tbody>'
+        '</table></div>'
+    )
+
+
+def _render_email_item_percentile_block(item: Dict) -> str:
+    td_style = "padding:6px 10px;border-bottom:1px solid #eee;white-space:nowrap"
+    td_num_style = f"{td_style};text-align:right"
+
+    rows_html: List[str] = []
     for metric_name in ("PE(TTM)", "PB(LF)", "PS(TTM)"):
         metric = get_index_valuation_metric(item, metric_name)
         if not metric:
@@ -1119,14 +1207,11 @@ def _render_email_percentile_section(item: Dict) -> str:
         percentiles = metric.get("percentiles") if isinstance(metric.get("percentiles"), dict) else {}
         current_cell = format_optional_number(metric.get("current"), decimals=2, strip=False)
         cells = [
-            f'<td style="{td_style}">{escape(metric_name)}</td>',
+            f'<td style="{td_style}"><b>{escape(metric_name)}</b></td>',
             f'<td style="{td_num_style}">{escape(current_cell)}</td>',
         ]
         for label in EMAIL_PERCENTILE_LABELS:
-            cell_value = format_optional_percent(
-                percentiles.get(label), decimals=2, strip=False
-            )
-            cells.append(f'<td style="{td_num_style}">{escape(cell_value)}</td>')
+            cells.append(f'<td style="{td_num_style}">{_format_percentile_cell(percentiles.get(label))}</td>')
         rows_html.append(f'<tr>{"".join(cells)}</tr>')
 
     if not rows_html:
@@ -1145,16 +1230,20 @@ def _render_email_percentile_section(item: Dict) -> str:
         )
     )
 
+    name = escape(str(item["name"]))
+    code = escape(str(item["code"]))
     valuation_date = str(item.get("index_valuation_date") or "").strip()
-    heading_suffix = (
-        f' <span style="color:{EMAIL_MUTED_COLOR};font-size:13px;font-weight:400">'
-        f'({escape(valuation_date)})</span>'
+    date_suffix = (
+        f' · <span style="color:{EMAIL_MUTED_COLOR};font-weight:400;font-size:13px">'
+        f'估值日期 {escape(valuation_date)}</span>'
         if valuation_date
         else ""
     )
 
     return (
-        f'<div style="font-weight:700;margin:14px 0 6px">估值分位{heading_suffix}</div>'
+        f'<div style="margin:16px 0 6px;font-weight:700;font-size:14px">{name}'
+        f' <span style="color:{EMAIL_MUTED_COLOR};font-weight:400;font-size:13px">({code})</span>'
+        f'{date_suffix}</div>'
         '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch">'
         '<table cellpadding="0" cellspacing="0" border="0" '
         'style="border-collapse:collapse;font-size:13px">'
@@ -1164,93 +1253,39 @@ def _render_email_percentile_section(item: Dict) -> str:
     )
 
 
-def _render_email_item_card(item: Dict) -> str:
-    name = escape(str(item["name"]))
-    code = escape(str(item["code"]))
-
-    drawdown_pct = item["drawdown"] * 100
-    drawdown_text = f"-{format_percent(drawdown_pct, decimals=2, strip=False)}%"
-    current_price = escape(format_number(item["current_price"], decimals=4, strip=False))
-    peak_price = escape(format_number(item["peak_price"], decimals=4, strip=False))
-    peak_date = escape(str(item["peak_date"]))
-
-    kv_rows = [
-        _render_email_kv_row(
-            "当前回撤",
-            f'<span style="color:{EMAIL_ALERT_COLOR};font-weight:700">'
-            f"{escape(drawdown_text)}</span>",
-        ),
-        _render_email_kv_row("当前价格", current_price),
-        _render_email_kv_row(
-            "历史高点",
-            f'{peak_price} <span style="color:{EMAIL_MUTED_COLOR}">({peak_date})</span>',
-        ),
-    ]
-
-    index_code = str(item.get("index_code") or "").strip()
-    index_name = str(item.get("index_name") or item.get("index_short_name") or "").strip()
-    if index_name or index_code:
-        parts: List[str] = []
-        if index_name:
-            parts.append(escape(index_name))
-        if index_code:
-            parts.append(
-                f'<span style="color:{EMAIL_MUTED_COLOR}">({escape(index_code)})</span>'
-            )
-        kv_rows.append(_render_email_kv_row("追踪指数", " ".join(parts)))
-
-    if item.get("index_dividend_yield") is not None:
-        dividend_text = format_optional_percent(
-            item.get("index_dividend_yield"), decimals=2, strip=False
-        )
-        dividend_date = str(item.get("index_dividend_yield_date") or "").strip()
-        date_suffix = (
-            f' <span style="color:{EMAIL_MUTED_COLOR}">({escape(dividend_date)})</span>'
-            if dividend_date
-            else ""
-        )
-        kv_rows.append(
-            _render_email_kv_row("指数股息率", f"{escape(dividend_text)}{date_suffix}")
-        )
-
-    kv_table = (
-        '<table cellpadding="0" cellspacing="0" border="0" '
-        'style="border-collapse:collapse;font-size:14px;margin:2px 0 0 0">'
-        f'<tbody>{"".join(kv_rows)}</tbody></table>'
-    )
-
-    percentile_section = _render_email_percentile_section(item)
-
-    card_style = (
-        f"border:1px solid {EMAIL_BORDER_COLOR};border-radius:6px;"
-        "padding:14px 16px;margin:14px 0;background:#fafafa"
-    )
-    header_style = "font-size:16px;font-weight:700;margin:0 0 8px 0;color:#222"
-
-    return (
-        f'<div style="{card_style}">'
-        f'<div style="{header_style}">{name}'
-        f' <span style="color:{EMAIL_MUTED_COLOR};font-weight:400;font-size:14px">({code})</span>'
-        f'</div>'
-        f'{kv_table}'
-        f'{percentile_section}'
-        '</div>'
-    )
-
-
 def build_email_html_content(triggered_items: List[Dict], current_time: Optional[datetime] = None) -> str:
     now_str = escape((current_time or now_in_beijing()).strftime("%Y-%m-%d %H:%M:%S"))
-    cards_html = "".join(_render_email_item_card(item) for item in triggered_items)
+    summary_html = _render_email_summary_table(triggered_items)
+
+    percentile_blocks = [
+        block
+        for block in (_render_email_item_percentile_block(item) for item in triggered_items)
+        if block
+    ]
+    percentile_section = ""
+    if percentile_blocks:
+        percentile_section = (
+            '<div style="margin-top:20px;padding-top:10px;border-top:1px solid #eee;'
+            'font-size:15px;font-weight:700">各标的估值分位</div>'
+            '<div style="color:#888;font-size:12px;margin-bottom:2px">'
+            f'<span style="color:{EMAIL_HIGH_COLOR};font-weight:700">■</span> 高估 ≥ '
+            f'{int(EMAIL_PERCENTILE_HIGH_THRESHOLD)}% · '
+            f'<span style="color:{EMAIL_LOW_COLOR};font-weight:700">■</span> 低估 ≤ '
+            f'{int(EMAIL_PERCENTILE_LOW_THRESHOLD)}%'
+            '</div>'
+            + "".join(percentile_blocks)
+        )
 
     outer_style = (
-        "max-width:820px;margin:20px auto;padding:16px;"
+        "max-width:900px;margin:20px auto;padding:16px;"
         f"background:#fff;border:1px solid #ddd;{EMAIL_BASE_FONT}"
     )
     banner_style = (
         f"background:{EMAIL_ACCENT_COLOR};color:#fff;padding:10px 14px;"
         "margin:-16px -16px 14px;font-size:16px;font-weight:700"
     )
-    time_style = f"color:{EMAIL_LABEL_COLOR};margin-bottom:4px"
+    time_style = f"color:{EMAIL_LABEL_COLOR};margin-bottom:6px"
+    section_header_style = "font-size:15px;font-weight:700;margin-top:10px"
 
     return (
         '<!doctype html>'
@@ -1261,7 +1296,9 @@ def build_email_html_content(triggered_items: List[Dict], current_time: Optional
         f'<div style="{outer_style}">'
         f'<div style="{banner_style}">📉 核心标的监控告警</div>'
         f'<div style="{time_style}">触发时间: {now_str}</div>'
-        f'{cards_html}'
+        f'<div style="{section_header_style}">告警汇总</div>'
+        f'{summary_html}'
+        f'{percentile_section}'
         '</div></body></html>'
     )
 

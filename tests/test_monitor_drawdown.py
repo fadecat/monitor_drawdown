@@ -348,14 +348,18 @@ def test_build_email_html_content_uses_table_and_escapes_values():
     assert '<meta charset="utf-8">' in content
     assert "红利低波100ETF &amp; 博时" in content
     assert "核心标的监控告警" in content
-    assert "估值分位" in content
+    assert "告警汇总" in content
+    assert "各标的估值分位" in content
     assert "中证红利低波动100指数" in content
-    assert "指数股息率" in content
     assert "5.23%" in content
     assert ">10.85<" in content
     assert ">PE(TTM)<" in content
+    # extreme percentile values get color markup
+    assert f'color:#D93026">100.00%' in content
+    assert f'color:#D93026">98.20%' in content
     assert ">75.44%<" in content
-    assert ">100.00%<" in content
-    assert ">98.20%<" in content
     assert "color:#d93025" in content
     assert "-5.20%" in content
+    # dividend stands out with special styling
+    assert "💰" in content
+    assert "color:#e67e22" in content
