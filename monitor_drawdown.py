@@ -1112,6 +1112,13 @@ def _format_percentile_cell(value: object) -> str:
     return text
 
 
+EMAIL_SUMMARY_NAME_MAX_LEN = 10
+
+
+def _truncate_name(name: str, max_len: int = EMAIL_SUMMARY_NAME_MAX_LEN) -> str:
+    return name if len(name) <= max_len else name[:max_len] + "…"
+
+
 def _render_email_summary_table(triggered_items: List[Dict]) -> str:
     th_style = (
         "padding:6px 10px;border-bottom:2px solid #333;"
@@ -1120,12 +1127,13 @@ def _render_email_summary_table(triggered_items: List[Dict]) -> str:
     td_style = "padding:6px 10px;border-bottom:1px solid #eee;white-space:nowrap"
     td_num_style = f"{td_style};text-align:right"
 
-    headers = ["标的", "股息率", "回撤", "当前价", "历史高点"]
+    headers = ["标的", "回撤", "股息率", "当前价", "历史高点"]
     thead = "".join(f'<th style="{th_style}">{escape(h)}</th>' for h in headers)
 
     body_rows: List[str] = []
     for item in triggered_items:
-        name = escape(str(item["name"]))
+        raw_name = str(item["name"])
+        short_name = escape(_truncate_name(raw_name))
         code = escape(str(item["code"]))
         drawdown_text = f"-{format_percent(item['drawdown'] * 100, decimals=2, strip=False)}%"
         current_price = escape(format_number(item["current_price"], decimals=4, strip=False))
@@ -1136,35 +1144,28 @@ def _render_email_summary_table(triggered_items: List[Dict]) -> str:
             div_text = format_optional_percent(
                 item.get("index_dividend_yield"), decimals=2, strip=False
             )
-            div_date = str(item.get("index_dividend_yield_date") or "").strip()
-            date_suffix = (
-                f' <span style="color:{EMAIL_MUTED_COLOR};font-weight:400;font-size:12px">'
-                f'({escape(div_date)})</span>'
-                if div_date
-                else ""
-            )
             dividend_cell = (
                 f'<span style="background:#fff4e0;padding:2px 8px;border-radius:4px;'
                 f'border:1px solid #f0c080;color:{EMAIL_DIVIDEND_COLOR};font-weight:700;'
-                f'font-size:14px">💰 {escape(div_text)}</span>{date_suffix}'
+                f'font-size:14px">💰 {escape(div_text)}</span>'
             )
         else:
             dividend_cell = "-"
 
         cells = [
             (
-                f'<td style="{td_style}">{name}'
-                f' <span style="color:{EMAIL_MUTED_COLOR};font-size:12px">({code})</span></td>'
+                f'<td style="{td_style}">{short_name}'
+                f'<br><span style="color:{EMAIL_MUTED_COLOR};font-size:11px">{code}</span></td>'
             ),
-            f'<td style="{td_style}">{dividend_cell}</td>',
             (
                 f'<td style="{td_num_style}">'
                 f'<b style="color:{EMAIL_ALERT_COLOR}">{escape(drawdown_text)}</b></td>'
             ),
+            f'<td style="{td_style}">{dividend_cell}</td>',
             f'<td style="{td_num_style}">{current_price}</td>',
             (
                 f'<td style="{td_style}">{peak_price}'
-                f' <span style="color:{EMAIL_MUTED_COLOR};font-size:12px">({peak_date})</span></td>'
+                f'<br><span style="color:{EMAIL_MUTED_COLOR};font-size:11px">{peak_date}</span></td>'
             ),
         ]
         body_rows.append(f'<tr>{"".join(cells)}</tr>')
