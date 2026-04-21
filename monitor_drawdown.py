@@ -570,6 +570,68 @@ def fetch_cn_10y_bond_yield() -> Optional[float]:
         return None
 
 
+def fetch_cn_10y_bond_history(lookback_years: int = 11) -> pd.DataFrame:
+    start = (datetime.now(BEIJING_TZ) - timedelta(days=365 * lookback_years)).strftime("%Y%m%d")
+    df = ak.bond_zh_us_rate(start_date=start)
+    date_col = "日期"
+    if _CN_10Y_BOND_YIELD_COL not in df.columns or date_col not in df.columns:
+        return pd.DataFrame(columns=["date", "yield_pct"])
+    result = df[[date_col, _CN_10Y_BOND_YIELD_COL]].copy()
+    result.columns = ["date", "yield_pct"]
+    result["date"] = pd.to_datetime(result["date"], errors="coerce")
+    result["yield_pct"] = pd.to_numeric(result["yield_pct"], errors="coerce")
+    return result.dropna().sort_values("date").reset_index(drop=True)
+
+
+def fetch_index_pe_history(index_code: str, url: str = "") -> pd.DataFrame:
+    url = url or DEFAULT_INDEX_VALUATION_PERCENTILE_URL_TEMPLATE.format(index_code=index_code)
+    resp = requests.get(url, timeout=15)
+    resp.raise_for_status()
+    records = []
+    for row in resp.json():
+        dt = str(row.get("trdDt") or "").strip()
+        pe = parse_float(row.get("pETtm"))
+        if dt and pe is not None and pe > 0:
+            records.append({"date": pd.to_datetime(dt), "pe": pe})
+    if not records:
+        return pd.DataFrame(columns=["date", "pe"])
+    return pd.DataFrame(records).sort_values("date").reset_index(drop=True)
+
+
+def compute_equity_bond_spread_percentiles(
+    pe_df: pd.DataFrame,
+    bond_df: pd.DataFrame,
+) -> Dict:
+    merged = pd.merge(pe_df, bond_df, on="date", how="inner").dropna()
+    merged = merged[merged["pe"] > 0].sort_values("date").reset_index(drop=True)
+    if len(merged) < 20:
+        return {}
+    merged["spread"] = (1.0 / merged["pe"]) * 100.0 - merged["yield_pct"]
+    current_spread = float(merged.iloc[-1]["spread"])
+    percentiles: Dict[str, float] = {}
+    for label, n_days in [("1Y", 252), ("3Y", 756), ("5Y", 1260), ("10Y", 2520)]:
+        window = merged.tail(n_days)
+        if len(window) >= 20:
+            percentiles[label] = round(float((window["spread"] <= current_spread).mean() * 100), 2)
+    avg_10y_window = merged.tail(2520)
+    avg_10y = round(float(avg_10y_window["spread"].mean()), 4) if not avg_10y_window.empty else None
+    return {"current": round(current_spread, 4), "percentiles": percentiles, "average_10y": avg_10y}
+
+
+def attach_equity_bond_spread(item: Dict, bond_history: pd.DataFrame) -> None:
+    index_code = str(item.get("index_code") or item.get("code") or "").strip()
+    valuation_url = str(item.get("index_valuation_percentile_source") or "").strip()
+    if not index_code and not valuation_url:
+        return
+    try:
+        pe_df = fetch_index_pe_history(index_code, url=valuation_url)
+        spread = compute_equity_bond_spread_percentiles(pe_df, bond_history)
+        if spread:
+            item["equity_bond_spread"] = spread
+    except Exception as exc:  # noqa: BLE001
+        print(f"[WARN] {item.get('name', index_code)} 股债收益差分位计算失败: {exc}")
+
+
 def attach_equity_bond_ratio(item: Dict, bond_yield: float) -> None:
     pe_metric = get_index_valuation_metric(item, "PE(TTM)")
     if not pe_metric:
@@ -1168,6 +1230,18 @@ def build_email_plain_text_content(
     return "\n".join(blocks)
 
 
+def _format_spread_percentile_cell(value: object) -> str:
+    parsed = parse_float(value)
+    if parsed is None:
+        return "-"
+    text = escape(f"{format_percent(parsed, decimals=2, strip=False)}%")
+    if parsed >= EMAIL_PERCENTILE_HIGH_THRESHOLD:
+        return f'<b style="color:{EMAIL_LOW_COLOR}">{text}</b>'
+    if parsed <= EMAIL_PERCENTILE_LOW_THRESHOLD:
+        return f'<b style="color:{EMAIL_HIGH_COLOR}">{text}</b>'
+    return text
+
+
 def _format_percentile_cell(value: object) -> str:
     parsed = parse_float(value)
     if parsed is None:
@@ -1272,21 +1346,37 @@ def _render_email_item_percentile_block(item: Dict) -> str:
         bond_yield = parse_float(item.get("cn_10y_bond_yield"))
         ratio_text = f"{ebr:+.2f}%"
         if ebr >= 4.0:
-            ratio_cell = f'<b style="color:{EMAIL_LOW_COLOR}">{escape(ratio_text)}</b>'
+            ratio_val_cell = f'<b style="color:{EMAIL_LOW_COLOR}">{escape(ratio_text)}</b>'
         elif ebr <= 0.0:
-            ratio_cell = f'<b style="color:{EMAIL_HIGH_COLOR}">{escape(ratio_text)}</b>'
+            ratio_val_cell = f'<b style="color:{EMAIL_HIGH_COLOR}">{escape(ratio_text)}</b>'
         else:
-            ratio_cell = escape(ratio_text)
-        bond_note = (
-            f' <span style="color:{EMAIL_MUTED_COLOR};font-size:11px">'
-            f'(1/PE − {bond_yield:.2f}% 10Y债)</span>'
-            if bond_yield is not None else ""
-        )
+            ratio_val_cell = escape(ratio_text)
+
+        spread_data = item.get("equity_bond_spread") or {}
+        spread_pcts = spread_data.get("percentiles") or {}
+        avg_10y = parse_float(spread_data.get("average_10y"))
+
+        bond_note = ""
+        if bond_yield is not None:
+            avg_note = f", 10Y均值 {avg_10y:+.2f}%" if avg_10y is not None else ""
+            bond_note = (
+                f' <span style="color:{EMAIL_MUTED_COLOR};font-size:11px">'
+                f'(1/PE − {bond_yield:.2f}% 10Y债{avg_note})</span>'
+            )
+
+        if spread_pcts:
+            pct_cells = "".join(
+                f'<td style="{td_num_style}">{_format_spread_percentile_cell(spread_pcts.get(label))}</td>'
+                for label in EMAIL_PERCENTILE_LABELS
+            )
+        else:
+            pct_cells = "".join(f'<td style="{td_num_style}">-</td>' for _ in EMAIL_PERCENTILE_LABELS)
+
         rows_html.append(
             f'<tr>'
             f'<td style="{td_style}"><b>股债收益差</b>{bond_note}</td>'
-            f'<td style="{td_num_style}">{ratio_cell}</td>'
-            + "".join(f'<td style="{td_num_style}">-</td>' for _ in EMAIL_PERCENTILE_LABELS)
+            f'<td style="{td_num_style}">{ratio_val_cell}</td>'
+            + pct_cells
             + '</tr>'
         )
 
@@ -1475,12 +1565,15 @@ def main() -> None:
     valuation_items: List[Dict] = []
 
     cn_10y_yield: Optional[float] = None
+    cn_10y_bond_history: Optional[pd.DataFrame] = None
     try:
         cn_10y_yield = fetch_cn_10y_bond_yield()
         if cn_10y_yield is not None:
             print(f"[INFO] 10年期国债收益率: {cn_10y_yield:.4f}%")
+        cn_10y_bond_history = fetch_cn_10y_bond_history()
+        print(f"[INFO] 10年期国债历史数据: {len(cn_10y_bond_history)} 条")
     except Exception as exc:  # noqa: BLE001
-        print(f"[WARN] 10年期国债收益率获取失败，股债收益差将不显示: {exc}")
+        print(f"[WARN] 10年期国债数据获取失败，股债收益差将不显示: {exc}")
     has_patch_targets = any(str(target.get("type", "")).strip().lower() in {"etf", "index"} for target in targets)
     jisilu_rows: Optional[List[Dict]] = None
 
@@ -1516,6 +1609,8 @@ def main() -> None:
                     valuation_item.update(metrics)
                     if cn_10y_yield is not None:
                         attach_equity_bond_ratio(valuation_item, cn_10y_yield)
+                    if cn_10y_bond_history is not None:
+                        attach_equity_bond_spread(valuation_item, cn_10y_bond_history)
                     valuation_items.append(valuation_item)
                     print(f"[INFO] {name} ({code}) 估值指标已获取: 股息率={metrics.get('index_dividend_yield')}")
                 else:
@@ -1603,6 +1698,8 @@ def main() -> None:
                     triggered_item.update(dividend_yield_info)
                 if cn_10y_yield is not None:
                     attach_equity_bond_ratio(triggered_item, cn_10y_yield)
+                if cn_10y_bond_history is not None:
+                    attach_equity_bond_spread(triggered_item, cn_10y_bond_history)
                 triggered.append(triggered_item)
             else:
                 print(f"[INFO] 未触发: {name} ({code}) 回撤 {drawdown:.2%} < {threshold:.2%}")

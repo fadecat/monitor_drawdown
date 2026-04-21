@@ -83,14 +83,17 @@ def run_preview(simulate_missing_today: bool = False, force_triggered: bool = Fa
 
     # 10年期国债收益率（全局一次）
     cn_10y_yield: Optional[float] = None
+    cn_10y_bond_history = None
     try:
         cn_10y_yield = md.fetch_cn_10y_bond_yield()
         if cn_10y_yield is not None:
             print(f"[INFO] 10年期国债收益率: {cn_10y_yield:.4f}%")
         else:
             print("[WARN] 10年期国债收益率获取为空，股债收益差将不显示")
+        cn_10y_bond_history = md.fetch_cn_10y_bond_history()
+        print(f"[INFO] 10年期国债历史数据: {len(cn_10y_bond_history)} 条")
     except Exception as exc:
-        print(f"[WARN] 10年期国债收益率获取失败: {exc}")
+        print(f"[WARN] 10年期国债数据获取失败: {exc}")
 
     # 集思录（etf/index 类型需要）
     jisilu_rows = None
@@ -133,6 +136,8 @@ def run_preview(simulate_missing_today: bool = False, force_triggered: bool = Fa
                     item.update(metrics)
                     if cn_10y_yield is not None:
                         md.attach_equity_bond_ratio(item, cn_10y_yield)
+                    if cn_10y_bond_history is not None:
+                        md.attach_equity_bond_spread(item, cn_10y_bond_history)
                     valuation_items.append(item)
                     print(f"[INFO] {name} ({code}) 股息率={metrics.get('index_dividend_yield')}, "
                           f"估值日期={metrics.get('index_valuation_date')}")
@@ -200,6 +205,8 @@ def run_preview(simulate_missing_today: bool = False, force_triggered: bool = Fa
                     triggered_item.update(dividend_yield_info)
                 if cn_10y_yield is not None:
                     md.attach_equity_bond_ratio(triggered_item, cn_10y_yield)
+                if cn_10y_bond_history is not None:
+                    md.attach_equity_bond_spread(triggered_item, cn_10y_bond_history)
                 triggered.append(triggered_item)
                 print(f"[ALERT] {'(强制)' if force_triggered else ''}触发: {name} 回撤 {drawdown:.2%}")
             else:
