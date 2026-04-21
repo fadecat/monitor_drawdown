@@ -1133,7 +1133,7 @@ def build_email_plain_text_content(
         if ebr is not None:
             bond_yield = parse_float(item.get("cn_10y_bond_yield"))
             note = f" (1/PE − {bond_yield:.2f}% 10Y债)" if bond_yield is not None else ""
-            lines.append(f"  股债性价比: {ebr:+.2f}%{note}")
+            lines.append(f"  股债收益差: {ebr:+.2f}%{note}")
 
         blocks.append("\n".join(lines))
 
@@ -1162,7 +1162,7 @@ def build_email_plain_text_content(
             if ebr is not None:
                 bond_yield = parse_float(item.get("cn_10y_bond_yield"))
                 note = f" (1/PE − {bond_yield:.2f}% 10Y债)" if bond_yield is not None else ""
-                lines.append(f"  股债性价比: {ebr:+.2f}%{note}")
+                lines.append(f"  股债收益差: {ebr:+.2f}%{note}")
             blocks.append("\n".join(lines))
 
     return "\n".join(blocks)
@@ -1284,7 +1284,7 @@ def _render_email_item_percentile_block(item: Dict) -> str:
         )
         rows_html.append(
             f'<tr>'
-            f'<td style="{td_style}"><b>股债性价比</b>{bond_note}</td>'
+            f'<td style="{td_style}"><b>股债收益差</b>{bond_note}</td>'
             f'<td style="{td_num_style}">{ratio_cell}</td>'
             + "".join(f'<td style="{td_num_style}">-</td>' for _ in EMAIL_PERCENTILE_LABELS)
             + '</tr>'
@@ -1480,7 +1480,7 @@ def main() -> None:
         if cn_10y_yield is not None:
             print(f"[INFO] 10年期国债收益率: {cn_10y_yield:.4f}%")
     except Exception as exc:  # noqa: BLE001
-        print(f"[WARN] 10年期国债收益率获取失败，股债性价比将不显示: {exc}")
+        print(f"[WARN] 10年期国债收益率获取失败，股债收益差将不显示: {exc}")
     has_patch_targets = any(str(target.get("type", "")).strip().lower() in {"etf", "index"} for target in targets)
     jisilu_rows: Optional[List[Dict]] = None
 

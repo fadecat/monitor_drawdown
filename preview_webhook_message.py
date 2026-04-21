@@ -88,7 +88,7 @@ def run_preview(simulate_missing_today: bool = False, force_triggered: bool = Fa
         if cn_10y_yield is not None:
             print(f"[INFO] 10年期国债收益率: {cn_10y_yield:.4f}%")
         else:
-            print("[WARN] 10年期国债收益率获取为空，股债性价比将不显示")
+            print("[WARN] 10年期国债收益率获取为空，股债收益差将不显示")
     except Exception as exc:
         print(f"[WARN] 10年期国债收益率获取失败: {exc}")
 
