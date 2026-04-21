@@ -1191,11 +1191,9 @@ def build_email_plain_text_content(
             suffix = f" ({valuation_date})" if valuation_date else ""
             lines.append(f"  估值{suffix}: " + ", ".join(metrics_parts))
 
-        ebr = parse_float(item.get("equity_bond_ratio"))
-        if ebr is not None:
-            bond_yield = parse_float(item.get("cn_10y_bond_yield"))
-            note = f" (1/PE − {bond_yield:.2f}% 10Y债)" if bond_yield is not None else ""
-            lines.append(f"  股债收益差: {ebr:+.2f}%{note}")
+        ebr_line = _format_equity_bond_spread_text(item)
+        if ebr_line:
+            lines.append(f"  {ebr_line}")
 
         blocks.append("\n".join(lines))
 
@@ -1220,14 +1218,91 @@ def build_email_plain_text_content(
             if metrics_parts:
                 val_date = str(item.get("index_valuation_date") or "").strip()
                 lines.append(f"  估值{f' ({val_date})' if val_date else ''}: " + ", ".join(metrics_parts))
-            ebr = parse_float(item.get("equity_bond_ratio"))
-            if ebr is not None:
-                bond_yield = parse_float(item.get("cn_10y_bond_yield"))
-                note = f" (1/PE − {bond_yield:.2f}% 10Y债)" if bond_yield is not None else ""
-                lines.append(f"  股债收益差: {ebr:+.2f}%{note}")
+            ebr_line = _format_equity_bond_spread_text(item)
+            if ebr_line:
+                lines.append(f"  {ebr_line}")
             blocks.append("\n".join(lines))
 
     return "\n".join(blocks)
+
+
+def _format_equity_bond_spread_text(item: Dict) -> str:
+    ebr = parse_float(item.get("equity_bond_ratio"))
+    if ebr is None:
+        return ""
+    bond_yield = parse_float(item.get("cn_10y_bond_yield"))
+    formula = f" (1/PE − {bond_yield:.2f}% 10Y债)" if bond_yield is not None else ""
+    spread_data = item.get("equity_bond_spread") or {}
+    spread_pcts = spread_data.get("percentiles") or {}
+    avg_10y = parse_float(spread_data.get("average_10y"))
+    context = ""
+    for w in ("5Y", "3Y", "10Y", "1Y"):
+        if w in spread_pcts:
+            label_text, _ = _spread_label(spread_pcts[w])
+            avg_note = f"，均值 {avg_10y:+.2f}%" if avg_10y is not None else ""
+            context = f" · 近{w} {label_text}（{spread_pcts[w]:.0f}%分位{avg_note}）"
+            break
+    return f"股债收益差: {ebr:+.2f}%{formula}{context}"
+
+
+def _spread_label(percentile: float) -> Tuple[str, str]:
+    """Returns (label, color) — high percentile = cheap = green."""
+    if percentile >= 80:
+        return "便宜", EMAIL_LOW_COLOR
+    if percentile >= 60:
+        return "略廉", "#27ae60"
+    if percentile >= 40:
+        return "适中", EMAIL_MUTED_COLOR
+    if percentile >= 20:
+        return "略贵", "#e67e22"
+    return "偏贵", EMAIL_HIGH_COLOR
+
+
+def _render_equity_bond_spread_line(item: Dict) -> str:
+    ebr = parse_float(item.get("equity_bond_ratio"))
+    if ebr is None:
+        return ""
+    bond_yield = parse_float(item.get("cn_10y_bond_yield"))
+    spread_data = item.get("equity_bond_spread") or {}
+    spread_pcts = spread_data.get("percentiles") or {}
+    avg_10y = parse_float(spread_data.get("average_10y"))
+
+    ratio_text = f"{ebr:+.2f}%"
+    if ebr >= 4.0:
+        ratio_html = f'<b style="color:{EMAIL_LOW_COLOR}">{escape(ratio_text)}</b>'
+    elif ebr <= 0.0:
+        ratio_html = f'<b style="color:{EMAIL_HIGH_COLOR}">{escape(ratio_text)}</b>'
+    else:
+        ratio_html = f'<b>{escape(ratio_text)}</b>'
+
+    formula_note = ""
+    if bond_yield is not None:
+        formula_note = f'<span style="color:{EMAIL_MUTED_COLOR};font-size:11px"> (1/PE − {bond_yield:.2f}% 10Y债)</span>'
+
+    # pick best window: prefer 5Y, fallback to 3Y / 10Y / 1Y
+    window_label = None
+    window_pct = None
+    for w in ("5Y", "3Y", "10Y", "1Y"):
+        if w in spread_pcts:
+            window_label, window_pct = w, spread_pcts[w]
+            break
+
+    context_html = ""
+    if window_label is not None and window_pct is not None:
+        label_text, label_color = _spread_label(window_pct)
+        avg_note = f"，均值 {avg_10y:+.2f}%" if avg_10y is not None else ""
+        context_html = (
+            f' · 近{escape(window_label)} '
+            f'<b style="color:{label_color}">{escape(label_text)}</b>'
+            f'<span style="color:{EMAIL_MUTED_COLOR};font-size:11px">'
+            f'（{window_pct:.0f}%分位{avg_note}）</span>'
+        )
+
+    return (
+        f'<div style="margin:4px 0 12px;font-size:13px;padding-left:2px">'
+        f'股债收益差 {ratio_html}{formula_note}{context_html}'
+        f'</div>'
+    )
 
 
 def _format_spread_percentile_cell(value: object) -> str:
@@ -1341,45 +1416,6 @@ def _render_email_item_percentile_block(item: Dict) -> str:
             cells.append(f'<td style="{td_num_style}">{_format_percentile_cell(percentiles.get(label))}</td>')
         rows_html.append(f'<tr>{"".join(cells)}</tr>')
 
-    ebr = parse_float(item.get("equity_bond_ratio"))
-    if ebr is not None:
-        bond_yield = parse_float(item.get("cn_10y_bond_yield"))
-        ratio_text = f"{ebr:+.2f}%"
-        if ebr >= 4.0:
-            ratio_val_cell = f'<b style="color:{EMAIL_LOW_COLOR}">{escape(ratio_text)}</b>'
-        elif ebr <= 0.0:
-            ratio_val_cell = f'<b style="color:{EMAIL_HIGH_COLOR}">{escape(ratio_text)}</b>'
-        else:
-            ratio_val_cell = escape(ratio_text)
-
-        spread_data = item.get("equity_bond_spread") or {}
-        spread_pcts = spread_data.get("percentiles") or {}
-        avg_10y = parse_float(spread_data.get("average_10y"))
-
-        bond_note = ""
-        if bond_yield is not None:
-            avg_note = f", 10Y均值 {avg_10y:+.2f}%" if avg_10y is not None else ""
-            bond_note = (
-                f' <span style="color:{EMAIL_MUTED_COLOR};font-size:11px">'
-                f'(1/PE − {bond_yield:.2f}% 10Y债{avg_note})</span>'
-            )
-
-        if spread_pcts:
-            pct_cells = "".join(
-                f'<td style="{td_num_style}">{_format_spread_percentile_cell(spread_pcts.get(label))}</td>'
-                for label in EMAIL_PERCENTILE_LABELS
-            )
-        else:
-            pct_cells = "".join(f'<td style="{td_num_style}">-</td>' for _ in EMAIL_PERCENTILE_LABELS)
-
-        rows_html.append(
-            f'<tr>'
-            f'<td style="{td_style}"><b>股债收益差</b>{bond_note}</td>'
-            f'<td style="{td_num_style}">{ratio_val_cell}</td>'
-            + pct_cells
-            + '</tr>'
-        )
-
     if not rows_html:
         return ""
 
@@ -1415,6 +1451,8 @@ def _render_email_item_percentile_block(item: Dict) -> str:
         if meta_parts else ""
     )
 
+    spread_div = _render_equity_bond_spread_line(item)
+
     return (
         f'<div style="margin:16px 0 6px;font-weight:700;font-size:14px">{name}'
         f' <span style="color:{EMAIL_MUTED_COLOR};font-weight:400;font-size:13px">({code})</span>'
@@ -1425,6 +1463,7 @@ def _render_email_item_percentile_block(item: Dict) -> str:
         f'<thead><tr>{headers_html}</tr></thead>'
         f'<tbody>{"".join(rows_html)}</tbody>'
         '</table></div>'
+        + spread_div
     )
 
 
