@@ -554,6 +554,33 @@ def resolve_target_index_code(target: Dict) -> str:
     return ""
 
 
+_CN_10Y_BOND_YIELD_COL = "中国国债收益率10年"
+
+
+def fetch_cn_10y_bond_yield() -> Optional[float]:
+    try:
+        start = (datetime.now(BEIJING_TZ) - timedelta(days=30)).strftime("%Y%m%d")
+        df = ak.bond_zh_us_rate(start_date=start)
+        if _CN_10Y_BOND_YIELD_COL not in df.columns:
+            return None
+        series = df[_CN_10Y_BOND_YIELD_COL].dropna()
+        return float(series.iloc[-1]) if not series.empty else None
+    except Exception as exc:  # noqa: BLE001
+        print(f"[WARN] 10年期国债收益率获取失败: {exc}")
+        return None
+
+
+def attach_equity_bond_ratio(item: Dict, bond_yield: float) -> None:
+    pe_metric = get_index_valuation_metric(item, "PE(TTM)")
+    if not pe_metric:
+        return
+    pe_current = parse_float(pe_metric.get("current"))
+    if pe_current is None or pe_current <= 0:
+        return
+    item["equity_bond_ratio"] = round((1.0 / pe_current) * 100.0 - bond_yield, 4)
+    item["cn_10y_bond_yield"] = bond_yield
+
+
 def fetch_target_index_metrics(target: Dict) -> Optional[Dict]:
     index_code = resolve_target_index_code(target)
     detail_url = str(target.get("index_detail_url") or "").strip()
@@ -868,9 +895,12 @@ def patch_index_dataframe_with_jisilu(
     index_code: str,
     rows: List[Dict],
     current_time: Optional[datetime] = None,
+    fallback_etf_code: Optional[str] = None,
 ) -> Tuple[pd.DataFrame, Optional[Dict]]:
     candidates = find_jisilu_index_etf_candidates(rows, index_code)
     selected = select_best_jisilu_index_etf(candidates)
+    if selected is None and fallback_etf_code:
+        selected = find_jisilu_etf_by_fund_id(rows, fallback_etf_code)
     if selected is None:
         return df, None
 
@@ -1050,7 +1080,11 @@ EMAIL_BASE_FONT = (
 )
 
 
-def build_email_plain_text_content(triggered_items: List[Dict], current_time: Optional[datetime] = None) -> str:
+def build_email_plain_text_content(
+    triggered_items: List[Dict],
+    valuation_items: Optional[List[Dict]] = None,
+    current_time: Optional[datetime] = None,
+) -> str:
     now_str = (current_time or now_in_beijing()).strftime("%Y-%m-%d %H:%M:%S")
     blocks: List[str] = [f"{DEFAULT_EMAIL_SUBJECT}", f"触发时间: {now_str}"]
 
@@ -1095,7 +1129,41 @@ def build_email_plain_text_content(triggered_items: List[Dict], current_time: Op
             suffix = f" ({valuation_date})" if valuation_date else ""
             lines.append(f"  估值{suffix}: " + ", ".join(metrics_parts))
 
+        ebr = parse_float(item.get("equity_bond_ratio"))
+        if ebr is not None:
+            bond_yield = parse_float(item.get("cn_10y_bond_yield"))
+            note = f" (1/PE − {bond_yield:.2f}% 10Y债)" if bond_yield is not None else ""
+            lines.append(f"  股债性价比: {ebr:+.2f}%{note}")
+
         blocks.append("\n".join(lines))
+
+    if valuation_items:
+        blocks.append("\n\n--- 指数估值概览 ---")
+        for item in valuation_items:
+            index_name = str(item.get("index_name") or item.get("index_short_name") or "").strip()
+            index_code = str(item.get("index_code") or item.get("code") or "").strip()
+            lines = [f"\n{item['name']} ({item['code']})"]
+            if index_name:
+                lines.append(f"  追踪指数: {index_name} ({index_code})" if index_code else f"  追踪指数: {index_name}")
+            if item.get("index_dividend_yield") is not None:
+                dy = format_optional_percent(item.get("index_dividend_yield"), decimals=2, strip=False)
+                dy_date = str(item.get("index_dividend_yield_date") or "").strip()
+                lines.append(f"  股息率: {dy}%" + (f" ({dy_date})" if dy_date else ""))
+            metrics_parts = []
+            for metric_name in ("PE(TTM)", "PB(LF)", "PS(TTM)"):
+                metric = get_index_valuation_metric(item, metric_name)
+                if metric:
+                    current = format_optional_number(metric.get("current"), decimals=2, strip=False)
+                    metrics_parts.append(f"{metric_name} {current}")
+            if metrics_parts:
+                val_date = str(item.get("index_valuation_date") or "").strip()
+                lines.append(f"  估值{f' ({val_date})' if val_date else ''}: " + ", ".join(metrics_parts))
+            ebr = parse_float(item.get("equity_bond_ratio"))
+            if ebr is not None:
+                bond_yield = parse_float(item.get("cn_10y_bond_yield"))
+                note = f" (1/PE − {bond_yield:.2f}% 10Y债)" if bond_yield is not None else ""
+                lines.append(f"  股债性价比: {ebr:+.2f}%{note}")
+            blocks.append("\n".join(lines))
 
     return "\n".join(blocks)
 
@@ -1199,6 +1267,29 @@ def _render_email_item_percentile_block(item: Dict) -> str:
             cells.append(f'<td style="{td_num_style}">{_format_percentile_cell(percentiles.get(label))}</td>')
         rows_html.append(f'<tr>{"".join(cells)}</tr>')
 
+    ebr = parse_float(item.get("equity_bond_ratio"))
+    if ebr is not None:
+        bond_yield = parse_float(item.get("cn_10y_bond_yield"))
+        ratio_text = f"{ebr:+.2f}%"
+        if ebr >= 4.0:
+            ratio_cell = f'<b style="color:{EMAIL_LOW_COLOR}">{escape(ratio_text)}</b>'
+        elif ebr <= 0.0:
+            ratio_cell = f'<b style="color:{EMAIL_HIGH_COLOR}">{escape(ratio_text)}</b>'
+        else:
+            ratio_cell = escape(ratio_text)
+        bond_note = (
+            f' <span style="color:{EMAIL_MUTED_COLOR};font-size:11px">'
+            f'(1/PE − {bond_yield:.2f}% 10Y债)</span>'
+            if bond_yield is not None else ""
+        )
+        rows_html.append(
+            f'<tr>'
+            f'<td style="{td_style}"><b>股债性价比</b>{bond_note}</td>'
+            f'<td style="{td_num_style}">{ratio_cell}</td>'
+            + "".join(f'<td style="{td_num_style}">-</td>' for _ in EMAIL_PERCENTILE_LABELS)
+            + '</tr>'
+        )
+
     if not rows_html:
         return ""
 
@@ -1247,9 +1338,23 @@ def _render_email_item_percentile_block(item: Dict) -> str:
     )
 
 
-def build_email_html_content(triggered_items: List[Dict], current_time: Optional[datetime] = None) -> str:
+def build_email_html_content(
+    triggered_items: List[Dict],
+    valuation_items: Optional[List[Dict]] = None,
+    current_time: Optional[datetime] = None,
+) -> str:
     now_str = escape((current_time or now_in_beijing()).strftime("%Y-%m-%d %H:%M:%S"))
-    summary_html = _render_email_summary_table(triggered_items)
+
+    _percentile_legend = (
+        '<div style="color:#888;font-size:12px;margin-bottom:2px">'
+        f'<span style="color:{EMAIL_HIGH_COLOR};font-weight:700">■</span> 高估 ≥ '
+        f'{int(EMAIL_PERCENTILE_HIGH_THRESHOLD)}% · '
+        f'<span style="color:{EMAIL_LOW_COLOR};font-weight:700">■</span> 低估 ≤ '
+        f'{int(EMAIL_PERCENTILE_LOW_THRESHOLD)}%'
+        '</div>'
+    )
+
+    summary_html = _render_email_summary_table(triggered_items) if triggered_items else ""
 
     percentile_blocks = [
         block
@@ -1261,14 +1366,24 @@ def build_email_html_content(triggered_items: List[Dict], current_time: Optional
         percentile_section = (
             '<div style="margin-top:20px;padding-top:10px;border-top:1px solid #eee;'
             'font-size:15px;font-weight:700">各标的估值分位</div>'
-            '<div style="color:#888;font-size:12px;margin-bottom:2px">'
-            f'<span style="color:{EMAIL_HIGH_COLOR};font-weight:700">■</span> 高估 ≥ '
-            f'{int(EMAIL_PERCENTILE_HIGH_THRESHOLD)}% · '
-            f'<span style="color:{EMAIL_LOW_COLOR};font-weight:700">■</span> 低估 ≤ '
-            f'{int(EMAIL_PERCENTILE_LOW_THRESHOLD)}%'
-            '</div>'
+            + _percentile_legend
             + "".join(percentile_blocks)
         )
+
+    valuation_section = ""
+    if valuation_items:
+        valuation_blocks = [
+            block
+            for block in (_render_email_item_percentile_block(item) for item in valuation_items)
+            if block
+        ]
+        if valuation_blocks:
+            valuation_section = (
+                '<div style="margin-top:20px;padding-top:10px;border-top:1px solid #eee;'
+                'font-size:15px;font-weight:700">指数估值概览</div>'
+                + _percentile_legend
+                + "".join(valuation_blocks)
+            )
 
     outer_style = (
         "max-width:900px;margin:20px auto;padding:16px;"
@@ -1290,10 +1405,9 @@ def build_email_html_content(triggered_items: List[Dict], current_time: Optional
         f'<div style="{outer_style}">'
         f'<div style="{banner_style}">📉 核心标的监控告警</div>'
         f'<div style="{time_style}">触发时间: {now_str}</div>'
-        f'<div style="{section_header_style}">告警汇总</div>'
-        f'{summary_html}'
-        f'{percentile_section}'
-        '</div></body></html>'
+        + (f'<div style="{section_header_style}">告警汇总</div>{summary_html}{percentile_section}' if triggered_items else "")
+        + valuation_section
+        + '</div></body></html>'
     )
 
 
@@ -1302,23 +1416,25 @@ def build_email_message(
     recipients: List[str],
     subject: str,
     triggered_items: List[Dict],
+    valuation_items: Optional[List[Dict]] = None,
     current_time: Optional[datetime] = None,
 ) -> EmailMessage:
     message = EmailMessage()
     message["From"] = sender
     message["To"] = ", ".join(recipients)
     message["Subject"] = subject
-    message.set_content(build_email_plain_text_content(triggered_items, current_time=current_time))
-    message.add_alternative(build_email_html_content(triggered_items, current_time=current_time), subtype="html")
+    message.set_content(build_email_plain_text_content(triggered_items, valuation_items=valuation_items, current_time=current_time))
+    message.add_alternative(build_email_html_content(triggered_items, valuation_items=valuation_items, current_time=current_time), subtype="html")
     return message
 
 
-def send_email(config: Dict, triggered_items: List[Dict], current_time: Optional[datetime] = None) -> None:
+def send_email(config: Dict, triggered_items: List[Dict], valuation_items: Optional[List[Dict]] = None, current_time: Optional[datetime] = None) -> None:
     message = build_email_message(
         config["sender"],
         config["recipients"],
         config["subject"],
         triggered_items,
+        valuation_items=valuation_items,
         current_time=current_time,
     )
     with smtplib.SMTP_SSL(config["smtp_host"], config["smtp_port"], timeout=15) as smtp:
@@ -1356,6 +1472,15 @@ def main() -> None:
     print(f"[INFO] 拉取数据区间: {start_str} - {end_str}")
 
     triggered: List[Dict] = []
+    valuation_items: List[Dict] = []
+
+    cn_10y_yield: Optional[float] = None
+    try:
+        cn_10y_yield = fetch_cn_10y_bond_yield()
+        if cn_10y_yield is not None:
+            print(f"[INFO] 10年期国债收益率: {cn_10y_yield:.4f}%")
+    except Exception as exc:  # noqa: BLE001
+        print(f"[WARN] 10年期国债收益率获取失败，股债性价比将不显示: {exc}")
     has_patch_targets = any(str(target.get("type", "")).strip().lower() in {"etf", "index"} for target in targets)
     jisilu_rows: Optional[List[Dict]] = None
 
@@ -1378,8 +1503,25 @@ def main() -> None:
         threshold = float(target.get("threshold", 0.08))
         lookback_days = int(target.get("lookback_days", 120))
 
-        if not name or not code or target_type not in {"etf", "index"}:
+        if not name or not code or target_type not in {"etf", "index", "valuation"}:
             print(f"[ERROR] 配置不完整或类型非法，已跳过: {target}")
+            continue
+
+        if target_type == "valuation":
+            print(f"[INFO] 估值概览: {name} ({code})")
+            try:
+                metrics = fetch_target_index_metrics(target)
+                if metrics:
+                    valuation_item: Dict = {"name": name, "code": code}
+                    valuation_item.update(metrics)
+                    if cn_10y_yield is not None:
+                        attach_equity_bond_ratio(valuation_item, cn_10y_yield)
+                    valuation_items.append(valuation_item)
+                    print(f"[INFO] {name} ({code}) 估值指标已获取: 股息率={metrics.get('index_dividend_yield')}")
+                else:
+                    print(f"[WARN] {name} ({code}) 估值指标为空，跳过")
+            except Exception as exc:  # noqa: BLE001
+                print(f"[ERROR] {name} ({code}) 估值指标获取失败: {exc}")
             continue
 
         print(f"[INFO] 开始处理: {name} ({code}), type={target_type}, threshold={threshold:.2%}, lookback={lookback_days}")
@@ -1404,11 +1546,13 @@ def main() -> None:
             else:
                 df = fetch_index_data(code, start_str, end_str)
                 if jisilu_rows:
+                    jisilu_etf_code = str(target.get("jisilu_etf_code") or "").strip() or None
                     df, patch = patch_index_dataframe_with_jisilu(
                         df,
                         code,
                         jisilu_rows,
                         current_time=current_time,
+                        fallback_etf_code=jisilu_etf_code,
                     )
                     if patch:
                         print(
@@ -1457,6 +1601,8 @@ def main() -> None:
                 }
                 if dividend_yield_info:
                     triggered_item.update(dividend_yield_info)
+                if cn_10y_yield is not None:
+                    attach_equity_bond_ratio(triggered_item, cn_10y_yield)
                 triggered.append(triggered_item)
             else:
                 print(f"[INFO] 未触发: {name} ({code}) 回撤 {drawdown:.2%} < {threshold:.2%}")
@@ -1464,17 +1610,18 @@ def main() -> None:
             print(f"[ERROR] 处理 {name} ({code}) 失败: {exc}")
             continue
 
-    if triggered:
-        print(f"[INFO] 共 {len(triggered)} 个标的触发，准备发送通知。")
-        try:
-            send_webhook(webhook_url, triggered)
-        except Exception as exc:  # noqa: BLE001
-            raise RuntimeError(f"Webhook 发送失败: {exc}") from exc
+    if triggered or valuation_items:
+        print(f"[INFO] 共 {len(triggered)} 个标的触发，{len(valuation_items)} 个估值概览，准备发送通知。")
+        if triggered:
+            try:
+                send_webhook(webhook_url, triggered)
+            except Exception as exc:  # noqa: BLE001
+                raise RuntimeError(f"Webhook 发送失败: {exc}") from exc
 
         try:
             email_config = load_email_config_from_env()
             if email_config:
-                send_email(email_config, triggered, current_time=current_time)
+                send_email(email_config, triggered, valuation_items=valuation_items, current_time=current_time)
             else:
                 print("[INFO] 未配置 RECEIVER_EMAIL/SMTP_USER/SMTP_PASS，跳过邮件发送。")
         except Exception as exc:  # noqa: BLE001
