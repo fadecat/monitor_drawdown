@@ -1,45 +1,51 @@
 targets:
-  - name: "红利低波100ETF(博时)"
-    code: "159307"
-    type: "etf"
-    tracking_index_code: "930955"
+  - name: "中证红利低波动100"
+    code: "930955"
+    type: "valuation"
     index_detail_url: "https://www.etf.com.cn/api/etf-api-service/index/detail?indexCode=930955"
     index_dividend_yield_url: "https://cdn.efunds.com.cn/etf-net/index_dividend_ratio_930955.json"
-    threshold: 0.05
-    lookback_days: 120
 
-  - name: "价值100ETF"
-    code: "512040"
-    type: "etf"
-    tracking_index_code: "931052"
-    index_detail_url: "https://www.etf.com.cn/api/etf-api-service/index/detail?indexCode=931052"
-    threshold: 0.05
-    lookback_days: 120
+  # - name: "红利低波100ETF(博时)"
+  #   code: "159307"
+  #   type: "etf"
+  #   tracking_index_code: "930955"
+  #   index_detail_url: "https://www.etf.com.cn/api/etf-api-service/index/detail?indexCode=930955"
+  #   index_dividend_yield_url: "https://cdn.efunds.com.cn/etf-net/index_dividend_ratio_930955.json"
+  #   threshold: 0.05
+  #   lookback_days: 120
+
+  # - name: "价值100ETF"
+  #   code: "512040"
+  #   type: "etf"
+  #   tracking_index_code: "931052"
+  #   index_detail_url: "https://www.etf.com.cn/api/etf-api-service/index/detail?indexCode=931052"
+  #   threshold: 0.05
+  #   lookback_days: 120
 
   - name: "沪深300"
     code: "000300"
     type: "valuation"
     index_detail_url: "https://www.etf.com.cn/api/etf-api-service/index/detail?indexCode=000300"
 
-  - name: "中证800"
-    code: "000906"
-    type: "valuation"
-    index_detail_url: "https://www.etf.com.cn/api/etf-api-service/index/detail?indexCode=000906"
+  # - name: "中证800"
+  #   code: "000906"
+  #   type: "valuation"
+  #   index_detail_url: "https://www.etf.com.cn/api/etf-api-service/index/detail?indexCode=000906"
 
-  - name: "1000成长创新"
-    code: "931591"
-    type: "valuation"
-    index_detail_url: "https://www.etf.com.cn/api/etf-api-service/index/detail?indexCode=931591"
+  # - name: "1000成长创新"
+  #   code: "931591"
+  #   type: "valuation"
+  #   index_detail_url: "https://www.etf.com.cn/api/etf-api-service/index/detail?indexCode=931591"
 
   - name: "国证2000"
     code: "399303"
     type: "valuation"
     index_detail_url: "https://www.etf.com.cn/api/etf-api-service/index/detail?indexCode=399303"
 
-  - name: "中证红利"
-    code: "000922"
-    type: "valuation"
-    index_detail_url: "https://www.etf.com.cn/api/etf-api-service/index/detail?indexCode=000922"
+  # - name: "中证红利"
+  #   code: "000922"
+  #   type: "valuation"
+  #   index_detail_url: "https://www.etf.com.cn/api/etf-api-service/index/detail?indexCode=000922"
 
   # 你可以继续添加更多监控标的，例如：
   # 测试 webhook 时可临时把 threshold 改成 0，测完改回正式值

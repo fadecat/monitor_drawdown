@@ -1180,78 +1180,36 @@ def build_email_plain_text_content(
     now_str = (current_time or now_in_beijing()).strftime("%Y-%m-%d %H:%M:%S")
     blocks: List[str] = [f"{DEFAULT_EMAIL_SUBJECT}", f"触发时间: {now_str}"]
 
-    for item in triggered_items:
-        drawdown_text = format_percent(item["drawdown"] * 100, decimals=2, strip=False)
-        current_price = format_number(item["current_price"], decimals=4, strip=False)
-        peak_price = format_number(item["peak_price"], decimals=4, strip=False)
-
-        lines = [
-            "",
-            f"{item['name']} ({item['code']})",
-            f"  当前回撤: -{drawdown_text}%",
-            f"  当前价格: {current_price}",
-            f"  历史高点: {peak_price} ({item['peak_date']})",
-        ]
-
-        index_code = str(item.get("index_code") or "").strip()
-        index_name = str(item.get("index_name") or item.get("index_short_name") or "").strip()
-        if index_name or index_code:
-            display = index_name or "-"
-            if index_code:
-                display = f"{display} ({index_code})" if index_name else f"({index_code})"
-            lines.append(f"  追踪指数: {display}")
+    all_items: List[Dict] = list(triggered_items) + list(valuation_items or [])
+    if all_items:
+        blocks.append("\n--- 各标的估值分位 ---")
+    for item in all_items:
+        index_name = str(item.get("index_name") or item.get("index_short_name") or item.get("name") or "").strip()
+        index_code = str(item.get("index_code") or item.get("code") or "").strip()
+        header = index_name or "-"
+        if index_code:
+            header = f"{header} ({index_code})" if index_name else f"({index_code})"
+        lines = [f"\n{header}"]
 
         if item.get("index_dividend_yield") is not None:
-            dividend_text = format_optional_percent(
-                item.get("index_dividend_yield"), decimals=2, strip=False
-            )
-            dividend_date = str(item.get("index_dividend_yield_date") or "").strip()
-            suffix = f" ({dividend_date})" if dividend_date else ""
-            lines.append(f"  指数股息率: {dividend_text}{suffix}")
+            dy = format_optional_percent(item.get("index_dividend_yield"), decimals=2, strip=False)
+            dy_date = str(item.get("index_dividend_yield_date") or "").strip()
+            lines.append(f"  股息率: {dy}" + (f" ({dy_date})" if dy_date else ""))
 
         metrics_parts: List[str] = []
         for metric_name in ("PE(TTM)", "PB(LF)"):
             metric = get_index_valuation_metric(item, metric_name)
-            if not metric:
-                continue
-            current = format_optional_number(metric.get("current"), decimals=2, strip=False)
-            metrics_parts.append(f"{metric_name} {current}")
+            if metric:
+                current = format_optional_number(metric.get("current"), decimals=2, strip=False)
+                metrics_parts.append(f"{metric_name} {current}")
         if metrics_parts:
-            valuation_date = str(item.get("index_valuation_date") or "").strip()
-            suffix = f" ({valuation_date})" if valuation_date else ""
-            lines.append(f"  估值{suffix}: " + ", ".join(metrics_parts))
+            val_date = str(item.get("index_valuation_date") or "").strip()
+            lines.append(f"  估值{f' ({val_date})' if val_date else ''}: " + ", ".join(metrics_parts))
 
         ebr_line = _format_equity_bond_spread_text(item)
         if ebr_line:
             lines.append(f"  {ebr_line}")
-
         blocks.append("\n".join(lines))
-
-    if valuation_items:
-        blocks.append("\n\n--- 指数估值概览 ---")
-        for item in valuation_items:
-            index_name = str(item.get("index_name") or item.get("index_short_name") or "").strip()
-            index_code = str(item.get("index_code") or item.get("code") or "").strip()
-            lines = [f"\n{item['name']} ({item['code']})"]
-            if index_name:
-                lines.append(f"  追踪指数: {index_name} ({index_code})" if index_code else f"  追踪指数: {index_name}")
-            if item.get("index_dividend_yield") is not None:
-                dy = format_optional_percent(item.get("index_dividend_yield"), decimals=2, strip=False)
-                dy_date = str(item.get("index_dividend_yield_date") or "").strip()
-                lines.append(f"  股息率: {dy}%" + (f" ({dy_date})" if dy_date else ""))
-            metrics_parts = []
-            for metric_name in ("PE(TTM)", "PB(LF)"):
-                metric = get_index_valuation_metric(item, metric_name)
-                if metric:
-                    current = format_optional_number(metric.get("current"), decimals=2, strip=False)
-                    metrics_parts.append(f"{metric_name} {current}")
-            if metrics_parts:
-                val_date = str(item.get("index_valuation_date") or "").strip()
-                lines.append(f"  估值{f' ({val_date})' if val_date else ''}: " + ", ".join(metrics_parts))
-            ebr_line = _format_equity_bond_spread_text(item)
-            if ebr_line:
-                lines.append(f"  {ebr_line}")
-            blocks.append("\n".join(lines))
 
     return "\n".join(blocks)
 
@@ -1519,31 +1477,35 @@ def _render_email_item_percentile_block(item: Dict) -> str:
         )
     )
 
-    name = escape(str(item["name"]))
-    code = escape(str(item["code"]))
-    index_code = str(item.get("index_code") or "").strip()
-    index_name = str(item.get("index_name") or item.get("index_short_name") or "").strip()
+    index_code = str(item.get("index_code") or item.get("code") or "").strip()
+    index_name = str(item.get("index_name") or item.get("index_short_name") or item.get("name") or "").strip()
     valuation_date = str(item.get("index_valuation_date") or "").strip()
+    dividend_yield = item.get("index_dividend_yield")
+
+    title_html = f'<b>{escape(index_name)}</b>' if index_name else ""
+    code_html = (
+        f' <span style="color:{EMAIL_MUTED_COLOR};font-weight:400;font-size:13px">'
+        f'({escape(index_code)})</span>'
+        if index_code else ""
+    )
 
     meta_parts: List[str] = []
-    if index_name:
-        meta_parts.append(escape(index_name))
-    if index_code:
-        meta_parts.append(f'({escape(index_code)})')
+    if dividend_yield is not None:
+        dy_text = format_optional_percent(dividend_yield, decimals=2, strip=False)
+        meta_parts.append(f'股息率 <b style="color:{EMAIL_LOW_COLOR}">{escape(dy_text)}</b>')
     if valuation_date:
         meta_parts.append(f'估值日期 {escape(valuation_date)}')
     meta_str = (
         f' <span style="color:{EMAIL_MUTED_COLOR};font-weight:400;font-size:13px">'
-        f'{"  ·  ".join(meta_parts)}</span>'
+        f'·  {"  ·  ".join(meta_parts)}</span>'
         if meta_parts else ""
     )
 
     spread_div = _render_equity_bond_spread_line(item)
 
     return (
-        f'<div style="margin:16px 0 6px;font-weight:700;font-size:14px">{name}'
-        f' <span style="color:{EMAIL_MUTED_COLOR};font-weight:400;font-size:13px">({code})</span>'
-        f'{meta_str}</div>'
+        f'<div style="margin:16px 0 6px;font-size:14px">'
+        f'{title_html}{code_html}{meta_str}</div>'
         '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch">'
         '<table cellpadding="0" cellspacing="0" border="0" '
         'style="border-collapse:collapse;font-size:13px">'
@@ -1570,36 +1532,20 @@ def build_email_html_content(
         '</div>'
     )
 
-    summary_html = _render_email_summary_table(triggered_items) if triggered_items else ""
-
+    all_items: List[Dict] = list(triggered_items) + list(valuation_items or [])
     percentile_blocks = [
         block
-        for block in (_render_email_item_percentile_block(item) for item in triggered_items)
+        for block in (_render_email_item_percentile_block(item) for item in all_items)
         if block
     ]
     percentile_section = ""
     if percentile_blocks:
         percentile_section = (
-            '<div style="margin-top:20px;padding-top:10px;border-top:1px solid #eee;'
+            '<div style="margin-top:10px;padding-top:10px;border-top:1px solid #eee;'
             'font-size:15px;font-weight:700">各标的估值分位</div>'
             + _percentile_legend
             + "".join(percentile_blocks)
         )
-
-    valuation_section = ""
-    if valuation_items:
-        valuation_blocks = [
-            block
-            for block in (_render_email_item_percentile_block(item) for item in valuation_items)
-            if block
-        ]
-        if valuation_blocks:
-            valuation_section = (
-                '<div style="margin-top:20px;padding-top:10px;border-top:1px solid #eee;'
-                'font-size:15px;font-weight:700">指数估值概览</div>'
-                + _percentile_legend
-                + "".join(valuation_blocks)
-            )
 
     outer_style = (
         "max-width:900px;margin:20px auto;padding:16px;"
@@ -1610,7 +1556,6 @@ def build_email_html_content(
         "margin:-16px -16px 14px;font-size:16px;font-weight:700"
     )
     time_style = f"color:{EMAIL_LABEL_COLOR};margin-bottom:6px"
-    section_header_style = "font-size:15px;font-weight:700;margin-top:10px"
 
     return (
         '<!doctype html>'
@@ -1621,8 +1566,7 @@ def build_email_html_content(
         f'<div style="{outer_style}">'
         f'<div style="{banner_style}">📉 核心标的监控告警</div>'
         f'<div style="{time_style}">触发时间: {now_str}</div>'
-        + (f'<div style="{section_header_style}">告警汇总</div>{summary_html}{percentile_section}' if triggered_items else "")
-        + valuation_section
+        + percentile_section
         + '</div></body></html>'
     )
 
