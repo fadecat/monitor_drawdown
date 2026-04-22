@@ -18,7 +18,7 @@
 
 - 回撤：在 `lookback_days` 窗口内，用历史最高价与当前价格计算回撤
 - 追踪指数股息率：配置 `tracking_index_code` 后，会拉取最新指数股息率并在邮件中展示
-- 追踪指数估值：通过指数详情接口自动发现估值分位 JSON，并在邮件中展示 PE(TTM)、PB(LF)、PS(TTM) 及各周期百分位
+- 追踪指数估值：通过指数详情接口自动发现估值分位 JSON，并在邮件中展示 PE(TTM)、PB(LF) 及各周期百分位
 
 当前代码核心逻辑在 `monitor_drawdown.py`，支持 ETF 与指数日线回撤监控。
 
@@ -173,4 +173,5 @@ pip install akshare pandas requests pyyaml tickflow pytest pycryptodome
 
 ```powershell
 python .\test_jisilu_index_patch.py
+JISILU_USERNAME=wobushibaobao JISILU_PASSWORD=yukihan007 python test_new_indices.py
 ```

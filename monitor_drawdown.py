@@ -607,15 +607,45 @@ def compute_equity_bond_spread_percentiles(
     if len(merged) < 20:
         return {}
     merged["spread"] = (1.0 / merged["pe"]) * 100.0 - merged["yield_pct"]
+    merged["ratio"] = pd.NA
+    ratio_mask = merged["yield_pct"] > 0
+    merged.loc[ratio_mask, "ratio"] = (100.0 / merged.loc[ratio_mask, "pe"]) / merged.loc[ratio_mask, "yield_pct"]
+
     current_spread = float(merged.iloc[-1]["spread"])
+    latest_ratio = merged.iloc[-1]["ratio"]
+    current_ratio = float(latest_ratio) if pd.notna(latest_ratio) else None
+    latest_date = merged.iloc[-1]["date"]
+
     percentiles: Dict[str, float] = {}
-    for label, n_days in [("1Y", 252), ("3Y", 756), ("5Y", 1260), ("10Y", 2520)]:
-        window = merged.tail(n_days)
+    ratio_percentiles: Dict[str, float] = {}
+    for label, years in [("1Y", 1), ("3Y", 3), ("5Y", 5), ("10Y", 10)]:
+        cutoff = latest_date - pd.DateOffset(years=years)
+        window = merged[merged["date"] >= cutoff]
         if len(window) >= 20:
-            percentiles[label] = round(float((window["spread"] <= current_spread).mean() * 100), 2)
-    avg_10y_window = merged.tail(2520)
+            percentiles[label] = round(float((window["spread"] < current_spread).mean() * 100), 2)
+            if current_ratio is not None:
+                rw = window.dropna(subset=["ratio"])
+                if len(rw) >= 20:
+                    ratio_percentiles[label] = round(float((rw["ratio"] < current_ratio).mean() * 100), 2)
+
+    avg_10y_window = merged[merged["date"] >= latest_date - pd.DateOffset(years=10)]
     avg_10y = round(float(avg_10y_window["spread"].mean()), 4) if not avg_10y_window.empty else None
-    return {"current": round(current_spread, 4), "percentiles": percentiles, "average_10y": avg_10y}
+    ratio_avg_10y = None
+    if current_ratio is not None:
+        rw10 = avg_10y_window.dropna(subset=["ratio"])
+        if not rw10.empty:
+            ratio_avg_10y = round(float(rw10["ratio"].mean()), 4)
+
+    result: Dict = {
+        "current": round(current_spread, 4),
+        "percentiles": percentiles,
+        "average_10y": avg_10y,
+    }
+    if current_ratio is not None:
+        result["ratio_current"] = round(current_ratio, 4)
+        result["ratio_percentiles"] = ratio_percentiles
+        result["ratio_average_10y"] = ratio_avg_10y
+    return result
 
 
 def attach_equity_bond_spread(item: Dict, bond_history: pd.DataFrame) -> None:
@@ -1180,7 +1210,7 @@ def build_email_plain_text_content(
             lines.append(f"  指数股息率: {dividend_text}{suffix}")
 
         metrics_parts: List[str] = []
-        for metric_name in ("PE(TTM)", "PB(LF)", "PS(TTM)"):
+        for metric_name in ("PE(TTM)", "PB(LF)"):
             metric = get_index_valuation_metric(item, metric_name)
             if not metric:
                 continue
@@ -1210,7 +1240,7 @@ def build_email_plain_text_content(
                 dy_date = str(item.get("index_dividend_yield_date") or "").strip()
                 lines.append(f"  股息率: {dy}%" + (f" ({dy_date})" if dy_date else ""))
             metrics_parts = []
-            for metric_name in ("PE(TTM)", "PB(LF)", "PS(TTM)"):
+            for metric_name in ("PE(TTM)", "PB(LF)"):
                 metric = get_index_valuation_metric(item, metric_name)
                 if metric:
                     current = format_optional_number(metric.get("current"), decimals=2, strip=False)
@@ -1226,6 +1256,17 @@ def build_email_plain_text_content(
     return "\n".join(blocks)
 
 
+_WINDOW_PRIORITY = ("10Y", "5Y", "3Y", "1Y")
+_WINDOW_CN = {"1Y": "近1年", "3Y": "近3年", "5Y": "近5年", "10Y": "近10年"}
+
+
+def _pick_window(pcts: Dict[str, float]) -> Tuple[Optional[str], Optional[float]]:
+    for w in _WINDOW_PRIORITY:
+        if w in pcts:
+            return w, pcts[w]
+    return None, None
+
+
 def _format_equity_bond_spread_text(item: Dict) -> str:
     ebr = parse_float(item.get("equity_bond_ratio"))
     if ebr is None:
@@ -1235,13 +1276,29 @@ def _format_equity_bond_spread_text(item: Dict) -> str:
     spread_data = item.get("equity_bond_spread") or {}
     spread_pcts = spread_data.get("percentiles") or {}
     avg_10y = parse_float(spread_data.get("average_10y"))
+    w_label, w_pct = _pick_window(spread_pcts)
     context = ""
-    for w in ("5Y", "3Y", "10Y", "1Y"):
-        if w in spread_pcts:
-            avg_note = f"，均值 {avg_10y:+.2f}%" if avg_10y is not None else ""
-            context = f" · 近{w} {spread_pcts[w]:.0f}%分位{avg_note}"
-            break
-    return f"股债收益差: {ebr:+.2f}%{formula}{context}"
+    if w_label is not None and w_pct is not None:
+        context = f"，超过{_WINDOW_CN[w_label]} {w_pct:.2f}% 时间"
+        if avg_10y is not None:
+            direction = "高于" if ebr >= avg_10y else "低于"
+            context += f"，{direction}10年均值 {avg_10y:+.2f}%"
+    lines = [f"股债收益差: {ebr:+.2f}%{formula}{context}"]
+
+    ratio_cur = parse_float(spread_data.get("ratio_current"))
+    if ratio_cur is not None:
+        ratio_pcts = spread_data.get("ratio_percentiles") or {}
+        ratio_avg = parse_float(spread_data.get("ratio_average_10y"))
+        ratio_formula = f" (1/PE ÷ {bond_yield:.2f}% 10Y债)" if bond_yield is not None else ""
+        rw_label, rw_pct = _pick_window(ratio_pcts)
+        ratio_context = ""
+        if rw_label is not None and rw_pct is not None:
+            ratio_context = f"，超过{_WINDOW_CN[rw_label]} {rw_pct:.2f}% 时间"
+            if ratio_avg is not None:
+                direction = "高于" if ratio_cur >= ratio_avg else "低于"
+                ratio_context += f"，{direction}10年均值 {ratio_avg:.2f}x"
+        lines.append(f"股债比值法: {ratio_cur:.2f}x{ratio_formula}{ratio_context}")
+    return "\n".join(lines)
 
 
 def _spread_label(percentile: float) -> Tuple[str, str]:
@@ -1278,30 +1335,61 @@ def _render_equity_bond_spread_line(item: Dict) -> str:
     if bond_yield is not None:
         formula_note = f'<span style="color:{EMAIL_MUTED_COLOR};font-size:11px"> (1/PE − {bond_yield:.2f}% 10Y债)</span>'
 
-    # pick best window: prefer 5Y, fallback to 3Y / 10Y / 1Y
-    window_label = None
-    window_pct = None
-    for w in ("5Y", "3Y", "10Y", "1Y"):
-        if w in spread_pcts:
-            window_label, window_pct = w, spread_pcts[w]
-            break
-
+    window_label, window_pct = _pick_window(spread_pcts)
     context_html = ""
     if window_label is not None and window_pct is not None:
         _, label_color = _spread_label(window_pct)
-        avg_note = f"，均值 {avg_10y:+.2f}%" if avg_10y is not None else ""
+        avg_note = ""
+        if avg_10y is not None:
+            direction = "高于" if ebr >= avg_10y else "低于"
+            avg_note = f"，{direction}10年均值 {avg_10y:+.2f}%"
         context_html = (
             f'<span style="color:{EMAIL_MUTED_COLOR};font-size:11px">'
-            f' · 近{escape(window_label)} '
-            f'<b style="color:{label_color}">{window_pct:.0f}%分位</b>'
+            f' · 超过{escape(_WINDOW_CN[window_label])} '
+            f'<b style="color:{label_color}">{window_pct:.2f}%</b> 时间'
             f'{avg_note}</span>'
         )
 
-    return (
-        f'<div style="margin:4px 0 12px;font-size:13px;padding-left:2px">'
+    diff_line = (
+        f'<div style="margin:4px 0 4px;font-size:13px;padding-left:2px">'
         f'股债收益差 {ratio_html}{formula_note}{context_html}'
         f'</div>'
     )
+
+    ratio_cur = parse_float(spread_data.get("ratio_current"))
+    if ratio_cur is None:
+        return diff_line.replace("margin:4px 0 4px", "margin:4px 0 12px")
+
+    ratio_pcts = spread_data.get("ratio_percentiles") or {}
+    ratio_avg = parse_float(spread_data.get("ratio_average_10y"))
+    ratio_text = f"{ratio_cur:.2f}x"
+    ratio_value_html = f'<b>{escape(ratio_text)}</b>'
+    ratio_formula_note = ""
+    if bond_yield is not None:
+        ratio_formula_note = (
+            f'<span style="color:{EMAIL_MUTED_COLOR};font-size:11px"> '
+            f'(1/PE ÷ {bond_yield:.2f}% 10Y债)</span>'
+        )
+    r_window_label, r_window_pct = _pick_window(ratio_pcts)
+    ratio_context_html = ""
+    if r_window_label is not None and r_window_pct is not None:
+        _, r_label_color = _spread_label(r_window_pct)
+        r_avg_note = ""
+        if ratio_avg is not None:
+            direction = "高于" if ratio_cur >= ratio_avg else "低于"
+            r_avg_note = f"，{direction}10年均值 {ratio_avg:.2f}x"
+        ratio_context_html = (
+            f'<span style="color:{EMAIL_MUTED_COLOR};font-size:11px">'
+            f' · 超过{escape(_WINDOW_CN[r_window_label])} '
+            f'<b style="color:{r_label_color}">{r_window_pct:.2f}%</b> 时间'
+            f'{r_avg_note}</span>'
+        )
+    ratio_line = (
+        f'<div style="margin:0 0 12px;font-size:13px;padding-left:2px">'
+        f'股债比值法 {ratio_value_html}{ratio_formula_note}{ratio_context_html}'
+        f'</div>'
+    )
+    return diff_line + ratio_line
 
 
 def _format_spread_percentile_cell(value: object) -> str:
@@ -1401,7 +1489,7 @@ def _render_email_item_percentile_block(item: Dict) -> str:
     td_num_style = f"{td_style};text-align:right"
 
     rows_html: List[str] = []
-    for metric_name in ("PE(TTM)", "PB(LF)", "PS(TTM)"):
+    for metric_name in ("PE(TTM)", "PB(LF)"):
         metric = get_index_valuation_metric(item, metric_name)
         if not metric:
             continue
