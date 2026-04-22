@@ -346,18 +346,17 @@ def test_build_email_html_content_uses_table_and_escapes_values():
 
     assert "<table" in content
     assert '<meta charset="utf-8">' in content
-    assert "核心标的监控告警" in content
-    assert "各标的估值分位" in content
+    assert "指数估值监控" in content
     assert "中证红利低波动100指数" in content
-    assert "(930955)" in content
+    assert "930955" in content
     assert "股息率" in content
     assert "5.23%" in content
-    assert ">10.85<" in content
-    assert ">PE(TTM)<" in content
-    # extreme percentile values get color markup (only 1Y/3Y/5Y retained)
-    assert 'color:#D93026">98.20%' in content
+    assert "10.85" in content
+    assert "PE(TTM)" in content
+    # extreme percentile values use the new soft red
+    assert 'color:#D32F2F">98.20%' in content
     assert "<th" in content  # table headers present
-    # the alert summary (drawdown/peak/current price) is removed
+    # legacy sections/labels are gone
     assert "告警汇总" not in content
     assert "红利低波100ETF" not in content
     assert "追踪指数" not in content

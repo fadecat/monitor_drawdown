@@ -1158,17 +1158,27 @@ def load_email_config_from_env() -> Optional[Dict]:
 EMAIL_PERCENTILE_LABELS = ["1Y", "3Y", "5Y"]
 EMAIL_ACCENT_COLOR = "#2c7be5"
 EMAIL_ALERT_COLOR = "#d93025"
-EMAIL_HIGH_COLOR = "#D93026"
-EMAIL_LOW_COLOR = "#1AAD19"
-EMAIL_DIVIDEND_COLOR = "#e67e22"
-EMAIL_MUTED_COLOR = "#888"
-EMAIL_LABEL_COLOR = "#666"
+EMAIL_HIGH_COLOR = "#D32F2F"
+EMAIL_LOW_COLOR = "#2E7D32"
+EMAIL_DIVIDEND_COLOR = "#2E7D32"
+EMAIL_MUTED_COLOR = "#6e6e73"
+EMAIL_LABEL_COLOR = "#86868b"
 EMAIL_BORDER_COLOR = "#e5e5e5"
+EMAIL_TEXT_PRIMARY = "#1d1d1f"
+EMAIL_BG_PAGE = "#f5f5f7"
+EMAIL_BG_TABLE_HEAD = "#fafafa"
+EMAIL_BG_TAG = "#E8F5E9"
+EMAIL_BORDER_SPLIT = "#EEEEEE"
+EMAIL_BORDER_CARD_SPLIT = "#f0f0f0"
+EMAIL_BORDER_ROW = "#f5f5f7"
 EMAIL_PERCENTILE_HIGH_THRESHOLD = 80.0
 EMAIL_PERCENTILE_LOW_THRESHOLD = 20.0
+EMAIL_FONT_STACK = (
+    "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,"
+    "'Helvetica Neue','PingFang SC','Microsoft YaHei',Arial,sans-serif"
+)
 EMAIL_BASE_FONT = (
-    "font-family:-apple-system,BlinkMacSystemFont,'PingFang SC',"
-    "'Microsoft YaHei',sans-serif;font-size:14px;line-height:1.6;color:#333"
+    f"font-family:{EMAIL_FONT_STACK};font-size:14px;line-height:1.6;color:{EMAIL_TEXT_PRIMARY}"
 )
 
 
@@ -1259,95 +1269,100 @@ def _format_equity_bond_spread_text(item: Dict) -> str:
     return "\n".join(lines)
 
 
-def _spread_label(percentile: float) -> Tuple[str, str]:
-    """Returns (label, color) — high percentile = cheap = green."""
-    if percentile >= 80:
-        return "便宜", EMAIL_LOW_COLOR
-    if percentile >= 60:
-        return "略廉", "#27ae60"
-    if percentile >= 40:
-        return "适中", EMAIL_MUTED_COLOR
-    if percentile >= 20:
-        return "略贵", "#e67e22"
-    return "偏贵", EMAIL_HIGH_COLOR
+def _signed_percent(value: float) -> str:
+    """Signed percentage with Unicode minus for visual balance."""
+    return f"{value:+.2f}%".replace("-", "−")
+
+
+def _spread_main_color(value: float, pct_10y: Optional[float], par: float) -> Tuple[str, Optional[str]]:
+    """Return (value_color, percentile_color).
+    percentile_color is None unless the extreme-percentile rule triggered the color.
+    par: threshold below which value itself (independent of percentile) signals warning."""
+    if pct_10y is not None:
+        if pct_10y >= EMAIL_PERCENTILE_HIGH_THRESHOLD:
+            return EMAIL_LOW_COLOR, EMAIL_LOW_COLOR
+        if pct_10y <= EMAIL_PERCENTILE_LOW_THRESHOLD:
+            return EMAIL_HIGH_COLOR, EMAIL_HIGH_COLOR
+    if value < par:
+        return EMAIL_HIGH_COLOR, None
+    return EMAIL_TEXT_PRIMARY, None
+
+
+def _render_spread_cell(
+    label: str,
+    main_html: str,
+    pct_10y: Optional[float],
+    avg_10y: Optional[float],
+    avg_formatter,
+    pct_color: Optional[str],
+    border_left: bool,
+) -> str:
+    cell_style = "padding-right:12px" if not border_left else (
+        f"padding-left:12px;border-left:1px solid {EMAIL_BORDER_SPLIT}"
+    )
+    pct_html = "-"
+    if pct_10y is not None:
+        pct_text = f"{pct_10y:.2f}%"
+        if pct_color:
+            pct_html = f'<b style="color:{pct_color}">{escape(pct_text)}</b>'
+        else:
+            pct_html = f'<span style="color:{EMAIL_MUTED_COLOR};font-weight:600">{escape(pct_text)}</span>'
+    avg_html = f'<span style="color:{EMAIL_MUTED_COLOR};font-weight:600">{avg_formatter(avg_10y)}</span>' if avg_10y is not None else "-"
+    return (
+        f'<td width="50%" valign="top" style="{cell_style}">'
+        f'<div style="font-size:12px;color:{EMAIL_MUTED_COLOR};letter-spacing:0.2px">{escape(label)}</div>'
+        f'<div style="margin-top:2px;line-height:1.2">{main_html}</div>'
+        f'<div style="font-size:11px;color:{EMAIL_LABEL_COLOR};margin-top:4px">'
+        f'10Y分位 {pct_html}&nbsp;·&nbsp;10Y均值 {avg_html}'
+        f'</div>'
+        f'</td>'
+    )
 
 
 def _render_equity_bond_spread_line(item: Dict) -> str:
     ebr = parse_float(item.get("equity_bond_ratio"))
     if ebr is None:
         return ""
-    bond_yield = parse_float(item.get("cn_10y_bond_yield"))
     spread_data = item.get("equity_bond_spread") or {}
     spread_pcts = spread_data.get("percentiles") or {}
     avg_10y = parse_float(spread_data.get("average_10y"))
+    pct_10y_diff = parse_float(spread_pcts.get("10Y"))
 
-    ratio_text = f"{ebr:+.2f}%"
-    if ebr >= 4.0:
-        ratio_html = f'<b style="color:{EMAIL_LOW_COLOR}">{escape(ratio_text)}</b>'
-    elif ebr <= 0.0:
-        ratio_html = f'<b style="color:{EMAIL_HIGH_COLOR}">{escape(ratio_text)}</b>'
-    else:
-        ratio_html = f'<b>{escape(ratio_text)}</b>'
-
-    formula_note = ""
-    if bond_yield is not None:
-        formula_note = f'<span style="color:{EMAIL_MUTED_COLOR};font-size:11px"> (1/PE − {bond_yield:.2f}% 10Y债)</span>'
-
-    window_label, window_pct = _pick_window(spread_pcts)
-    context_html = ""
-    if window_label is not None and window_pct is not None:
-        _, label_color = _spread_label(window_pct)
-        avg_note = ""
-        if avg_10y is not None:
-            direction = "高于" if ebr >= avg_10y else "低于"
-            avg_note = f"，{direction}10年均值 {avg_10y:+.2f}%"
-        context_html = (
-            f'<span style="color:{EMAIL_MUTED_COLOR};font-size:11px">'
-            f' · 超过{escape(_WINDOW_CN[window_label])} '
-            f'<b style="color:{label_color}">{window_pct:.2f}%</b> 时间'
-            f'{avg_note}</span>'
-        )
-
-    diff_line = (
-        f'<div style="margin:4px 0 4px;font-size:13px;padding-left:2px">'
-        f'股债收益差 {ratio_html}{formula_note}{context_html}'
-        f'</div>'
+    diff_color, diff_pct_color = _spread_main_color(ebr, pct_10y_diff, 0.0)
+    diff_main_html = (
+        f'<span style="font-size:22px;font-weight:700;color:{diff_color}">'
+        f'{escape(_signed_percent(ebr))}</span>'
+    )
+    diff_cell = _render_spread_cell(
+        "股债收益差", diff_main_html, pct_10y_diff, avg_10y,
+        lambda v: escape(_signed_percent(v)), diff_pct_color, border_left=False,
     )
 
     ratio_cur = parse_float(spread_data.get("ratio_current"))
     if ratio_cur is None:
-        return diff_line.replace("margin:4px 0 4px", "margin:4px 0 12px")
+        return (
+            f'<table cellpadding="0" cellspacing="0" border="0" width="100%" '
+            f'style="border-collapse:collapse;margin-top:20px"><tr>{diff_cell}'
+            f'<td width="50%">&nbsp;</td></tr></table>'
+        )
 
     ratio_pcts = spread_data.get("ratio_percentiles") or {}
     ratio_avg = parse_float(spread_data.get("ratio_average_10y"))
-    ratio_text = f"{ratio_cur:.2f}x"
-    ratio_value_html = f'<b>{escape(ratio_text)}</b>'
-    ratio_formula_note = ""
-    if bond_yield is not None:
-        ratio_formula_note = (
-            f'<span style="color:{EMAIL_MUTED_COLOR};font-size:11px"> '
-            f'(1/PE ÷ {bond_yield:.2f}% 10Y债)</span>'
-        )
-    r_window_label, r_window_pct = _pick_window(ratio_pcts)
-    ratio_context_html = ""
-    if r_window_label is not None and r_window_pct is not None:
-        _, r_label_color = _spread_label(r_window_pct)
-        r_avg_note = ""
-        if ratio_avg is not None:
-            direction = "高于" if ratio_cur >= ratio_avg else "低于"
-            r_avg_note = f"，{direction}10年均值 {ratio_avg:.2f}x"
-        ratio_context_html = (
-            f'<span style="color:{EMAIL_MUTED_COLOR};font-size:11px">'
-            f' · 超过{escape(_WINDOW_CN[r_window_label])} '
-            f'<b style="color:{r_label_color}">{r_window_pct:.2f}%</b> 时间'
-            f'{r_avg_note}</span>'
-        )
-    ratio_line = (
-        f'<div style="margin:0 0 12px;font-size:13px;padding-left:2px">'
-        f'股债比值法 {ratio_value_html}{ratio_formula_note}{ratio_context_html}'
-        f'</div>'
+    pct_10y_ratio = parse_float(ratio_pcts.get("10Y"))
+    ratio_color, ratio_pct_color = _spread_main_color(ratio_cur, pct_10y_ratio, 1.0)
+    ratio_main_html = (
+        f'<span style="font-size:22px;font-weight:700;color:{ratio_color}">'
+        f'{escape(f"{ratio_cur:.2f}x")}</span>'
     )
-    return diff_line + ratio_line
+    ratio_cell = _render_spread_cell(
+        "股债比值法", ratio_main_html, pct_10y_ratio, ratio_avg,
+        lambda v: escape(f"{v:.2f}x"), ratio_pct_color, border_left=True,
+    )
+    return (
+        f'<table cellpadding="0" cellspacing="0" border="0" width="100%" '
+        f'style="border-collapse:collapse;margin-top:20px">'
+        f'<tr>{diff_cell}{ratio_cell}</tr></table>'
+    )
 
 
 def _format_spread_percentile_cell(value: object) -> str:
@@ -1443,77 +1458,97 @@ def _render_email_summary_table(triggered_items: List[Dict]) -> str:
 
 
 def _render_email_item_percentile_block(item: Dict) -> str:
-    td_style = "padding:6px 10px;border-bottom:1px solid #eee;white-space:nowrap"
-    td_num_style = f"{td_style};text-align:right"
+    th_base = (
+        f"padding:8px 10px;background:{EMAIL_BG_TABLE_HEAD};color:{EMAIL_LABEL_COLOR};"
+        f"font-weight:500;font-size:11.5px;letter-spacing:0.3px;"
+        f"border-bottom:1px solid {EMAIL_BORDER_COLOR}"
+    )
+    td_label_style = (
+        f"padding:10px;border-bottom:1px solid {EMAIL_BORDER_ROW};"
+        f"color:{EMAIL_TEXT_PRIMARY};font-weight:600"
+    )
+    td_num_style = (
+        f"padding:10px;text-align:right;border-bottom:1px solid {EMAIL_BORDER_ROW};"
+        f"color:{EMAIL_TEXT_PRIMARY}"
+    )
 
     rows_html: List[str] = []
-    for metric_name in ("PE(TTM)", "PB(LF)"):
-        metric = get_index_valuation_metric(item, metric_name)
-        if not metric:
-            continue
+    metrics_to_render = [
+        (name, get_index_valuation_metric(item, name))
+        for name in ("PE(TTM)", "PB(LF)")
+    ]
+    metrics_to_render = [(n, m) for n, m in metrics_to_render if m]
+    for idx, (metric_name, metric) in enumerate(metrics_to_render):
+        is_last = idx == len(metrics_to_render) - 1
+        label_style = td_label_style if not is_last else td_label_style.replace(
+            f"border-bottom:1px solid {EMAIL_BORDER_ROW};", ""
+        )
+        num_style = td_num_style if not is_last else td_num_style.replace(
+            f"border-bottom:1px solid {EMAIL_BORDER_ROW};", ""
+        )
         percentiles = metric.get("percentiles") if isinstance(metric.get("percentiles"), dict) else {}
         current_cell = format_optional_number(metric.get("current"), decimals=2, strip=False)
         cells = [
-            f'<td style="{td_style}"><b>{escape(metric_name)}</b></td>',
-            f'<td style="{td_num_style}">{escape(current_cell)}</td>',
+            f'<td align="left" style="{label_style}">{escape(metric_name)}</td>',
+            f'<td align="right" style="{num_style}">{escape(current_cell)}</td>',
         ]
         for label in EMAIL_PERCENTILE_LABELS:
-            cells.append(f'<td style="{td_num_style}">{_format_percentile_cell(percentiles.get(label))}</td>')
+            cells.append(
+                f'<td align="right" style="{num_style}">'
+                f'{_format_percentile_cell(percentiles.get(label))}</td>'
+            )
         rows_html.append(f'<tr>{"".join(cells)}</tr>')
 
     if not rows_html:
         return ""
 
-    th_style = (
-        "padding:6px 10px;border-bottom:2px solid #333;"
-        "background:#f0f0f0;font-weight:700;white-space:nowrap"
-    )
     headers_html = (
-        f'<th style="{th_style};text-align:left">指标</th>'
-        f'<th style="{th_style};text-align:right">当前值</th>'
+        f'<th align="left" style="{th_base};text-align:left;text-transform:uppercase">指标</th>'
+        f'<th align="right" style="{th_base};text-align:right;text-transform:uppercase">当前</th>'
         + "".join(
-            f'<th style="{th_style};text-align:right">{escape(label)}</th>'
+            f'<th align="right" style="{th_base};text-align:right">{escape(label)}</th>'
             for label in EMAIL_PERCENTILE_LABELS
         )
     )
 
     index_code = str(item.get("index_code") or item.get("code") or "").strip()
-    index_name = str(item.get("index_name") or item.get("index_short_name") or item.get("name") or "").strip()
-    valuation_date = str(item.get("index_valuation_date") or "").strip()
+    index_name = str(
+        item.get("index_name") or item.get("index_short_name") or item.get("name") or ""
+    ).strip()
     dividend_yield = item.get("index_dividend_yield")
 
-    title_html = f'<b>{escape(index_name)}</b>' if index_name else ""
-    code_html = (
-        f' <span style="color:{EMAIL_MUTED_COLOR};font-weight:400;font-size:13px">'
-        f'({escape(index_code)})</span>'
-        if index_code else ""
-    )
-
-    meta_parts: List[str] = []
+    title_parts = [
+        f'<span style="font-size:17px;font-weight:700;color:{EMAIL_TEXT_PRIMARY};'
+        f'letter-spacing:-0.2px">{escape(index_name)}</span>'
+    ] if index_name else []
+    if index_code:
+        title_parts.append(
+            f'<span style="font-size:12px;color:{EMAIL_LABEL_COLOR};'
+            f'margin-left:8px;font-weight:500">{escape(index_code)}</span>'
+        )
     if dividend_yield is not None:
         dy_text = format_optional_percent(dividend_yield, decimals=2, strip=False)
-        meta_parts.append(f'股息率 <b style="color:{EMAIL_LOW_COLOR}">{escape(dy_text)}</b>')
-    if valuation_date:
-        meta_parts.append(f'估值日期 {escape(valuation_date)}')
-    meta_str = (
-        f' <span style="color:{EMAIL_MUTED_COLOR};font-weight:400;font-size:13px">'
-        f'·  {"  ·  ".join(meta_parts)}</span>'
-        if meta_parts else ""
+        title_parts.append(
+            f'<span style="display:inline-block;margin-left:10px;padding:4px 12px;'
+            f'background:{EMAIL_BG_TAG};color:{EMAIL_LOW_COLOR};font-size:11.5px;'
+            f'font-weight:700;border-radius:12px;vertical-align:2px">'
+            f'股息率 {escape(dy_text)}</span>'
+        )
+    title_html = (
+        f'<div style="margin-bottom:14px;line-height:1.4">{"".join(title_parts)}</div>'
+    )
+
+    table_html = (
+        '<table cellpadding="0" cellspacing="0" border="0" width="100%" '
+        f'style="border-collapse:collapse;font-size:13px">'
+        f'<thead><tr>{headers_html}</tr></thead>'
+        f'<tbody>{"".join(rows_html)}</tbody>'
+        '</table>'
     )
 
     spread_div = _render_equity_bond_spread_line(item)
 
-    return (
-        f'<div style="margin:16px 0 6px;font-size:14px">'
-        f'{title_html}{code_html}{meta_str}</div>'
-        '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch">'
-        '<table cellpadding="0" cellspacing="0" border="0" '
-        'style="border-collapse:collapse;font-size:13px">'
-        f'<thead><tr>{headers_html}</tr></thead>'
-        f'<tbody>{"".join(rows_html)}</tbody>'
-        '</table></div>'
-        + spread_div
-    )
+    return title_html + table_html + spread_div
 
 
 def build_email_html_content(
@@ -1521,53 +1556,104 @@ def build_email_html_content(
     valuation_items: Optional[List[Dict]] = None,
     current_time: Optional[datetime] = None,
 ) -> str:
-    now_str = escape((current_time or now_in_beijing()).strftime("%Y-%m-%d %H:%M:%S"))
+    now_str = escape((current_time or now_in_beijing()).strftime("%Y-%m-%d %H:%M"))
 
-    _percentile_legend = (
-        '<div style="color:#888;font-size:12px;margin-bottom:2px">'
-        f'<span style="color:{EMAIL_HIGH_COLOR};font-weight:700">■</span> 高估 ≥ '
-        f'{int(EMAIL_PERCENTILE_HIGH_THRESHOLD)}% · '
-        f'<span style="color:{EMAIL_LOW_COLOR};font-weight:700">■</span> 低估 ≤ '
-        f'{int(EMAIL_PERCENTILE_LOW_THRESHOLD)}%'
+    all_items: List[Dict] = list(triggered_items) + list(valuation_items or [])
+
+    valuation_date = ""
+    bond_yield: Optional[float] = None
+    for it in all_items:
+        vd = str(it.get("index_valuation_date") or "").strip()
+        if vd and not valuation_date:
+            valuation_date = vd
+        by = parse_float(it.get("cn_10y_bond_yield"))
+        if by is not None and bond_yield is None:
+            bond_yield = by
+
+    info_rows: List[str] = []
+    time_bits = [
+        f'<span style="color:{EMAIL_LABEL_COLOR}">触发时间</span>'
+        f' <b style="color:{EMAIL_TEXT_PRIMARY};margin-left:6px">{now_str}</b>'
+    ]
+    if valuation_date:
+        time_bits.append(
+            f'<span style="color:{EMAIL_LABEL_COLOR}">估值基准日</span>'
+            f' <b style="color:{EMAIL_TEXT_PRIMARY};margin-left:6px">{escape(valuation_date)}</b>'
+        )
+    if bond_yield is not None:
+        time_bits.append(
+            f'<span style="color:{EMAIL_LABEL_COLOR}">10Y国债</span>'
+            f' <b style="color:{EMAIL_TEXT_PRIMARY};margin-left:6px">{bond_yield:.2f}%</b>'
+        )
+    sep = f'<span style="color:#d2d2d7;margin:0 10px">|</span>'
+    info_rows.append(f'<div>{sep.join(time_bits)}</div>')
+    info_rows.append(
+        f'<div style="margin-top:6px">'
+        f'<span style="color:{EMAIL_LABEL_COLOR}">分位提示</span>'
+        f'<span style="display:inline-block;width:8px;height:8px;background:{EMAIL_HIGH_COLOR};'
+        f'border-radius:50%;margin:0 6px 0 8px"></span>高估 ≥ {int(EMAIL_PERCENTILE_HIGH_THRESHOLD)}%'
+        f'<span style="display:inline-block;width:8px;height:8px;background:{EMAIL_LOW_COLOR};'
+        f'border-radius:50%;margin:0 6px 0 16px"></span>低估 ≤ {int(EMAIL_PERCENTILE_LOW_THRESHOLD)}%'
+        f'</div>'
+    )
+    info_rows.append(
+        f'<div style="margin-top:6px;color:{EMAIL_LABEL_COLOR};font-size:11.5px">'
+        f'公式 · 股债收益差 = 1/PE − 10Y国债 &nbsp;·&nbsp; '
+        f'股债比值 = (1/PE) ÷ 10Y国债'
+        f'</div>'
+    )
+    global_info = (
+        f'<div style="background:{EMAIL_BG_PAGE};border-radius:10px;padding:14px 16px;'
+        f'font-size:12.5px;color:{EMAIL_MUTED_COLOR};line-height:1.75">'
+        + "".join(info_rows) +
         '</div>'
     )
 
-    all_items: List[Dict] = list(triggered_items) + list(valuation_items or [])
-    percentile_blocks = [
-        block
-        for block in (_render_email_item_percentile_block(item) for item in all_items)
-        if block
+    blocks = [
+        _render_email_item_percentile_block(item) for item in all_items
     ]
-    percentile_section = ""
-    if percentile_blocks:
-        percentile_section = (
-            '<div style="margin-top:10px;padding-top:10px;border-top:1px solid #eee;'
-            'font-size:15px;font-weight:700">各标的估值分位</div>'
-            + _percentile_legend
-            + "".join(percentile_blocks)
-        )
+    blocks = [b for b in blocks if b]
+    divider = (
+        f'<tr><td style="padding:24px 28px 0 28px">'
+        f'<div style="height:1px;background:{EMAIL_BORDER_CARD_SPLIT};line-height:0;font-size:0">&nbsp;</div>'
+        f'</td></tr>'
+    )
+    card_rows = []
+    for i, block in enumerate(blocks):
+        card_rows.append(f'<tr><td style="padding:24px 28px 0 28px">{block}</td></tr>')
+        if i < len(blocks) - 1:
+            card_rows.append(divider)
 
-    outer_style = (
-        "max-width:900px;margin:20px auto;padding:16px;"
-        f"background:#fff;border:1px solid #ddd;{EMAIL_BASE_FONT}"
+    footer = (
+        f'<tr><td style="padding:28px 28px 22px 28px;border-top:1px solid {EMAIL_BORDER_CARD_SPLIT};margin-top:24px">'
+        f'<div style="font-size:11px;color:{EMAIL_LABEL_COLOR};text-align:center;line-height:1.6">'
+        f'数据来源 · 易方达估值中心 &nbsp;·&nbsp; AKShare 国债收益率<br>'
+        f'本邮件由 GitHub Actions 自动发送，非投资建议'
+        f'</div></td></tr>'
     )
-    banner_style = (
-        f"background:{EMAIL_ACCENT_COLOR};color:#fff;padding:10px 14px;"
-        "margin:-16px -16px 14px;font-size:16px;font-weight:700"
-    )
-    time_style = f"color:{EMAIL_LABEL_COLOR};margin-bottom:6px"
 
     return (
         '<!doctype html>'
         '<html><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
-        '<title>核心标的监控告警</title></head>'
-        '<body style="margin:0;background:#f5f5f5">'
-        f'<div style="{outer_style}">'
-        f'<div style="{banner_style}">📉 核心标的监控告警</div>'
-        f'<div style="{time_style}">触发时间: {now_str}</div>'
-        + percentile_section
-        + '</div></body></html>'
+        '<title>指数估值监控</title></head>'
+        f'<body style="margin:0;padding:0;background:{EMAIL_BG_PAGE};'
+        f'font-family:{EMAIL_FONT_STACK}">'
+        f'<table role="presentation" cellpadding="0" cellspacing="0" border="0" '
+        f'width="100%" style="background:{EMAIL_BG_PAGE}">'
+        f'<tr><td align="center" style="padding:24px 12px">'
+        f'<table role="presentation" cellpadding="0" cellspacing="0" border="0" '
+        f'width="640" style="max-width:640px;background:#ffffff;border-radius:12px;overflow:hidden">'
+        f'<tr><td style="padding:22px 28px 16px 28px;border-bottom:1px solid {EMAIL_BORDER_CARD_SPLIT}">'
+        f'<div style="font-size:20px;font-weight:700;color:{EMAIL_TEXT_PRIMARY};letter-spacing:-0.2px">'
+        f'📊 指数估值监控</div>'
+        f'<div style="font-size:12px;color:{EMAIL_LABEL_COLOR};margin-top:2px">'
+        f'Daily Valuation Digest</div>'
+        f'</td></tr>'
+        f'<tr><td style="padding:14px 28px 0 28px">{global_info}</td></tr>'
+        + "".join(card_rows)
+        + footer
+        + '</table></td></tr></table></body></html>'
     )
 
 
