@@ -5,6 +5,11 @@ targets:
     index_detail_url: "https://www.etf.com.cn/api/etf-api-service/index/detail?indexCode=930955"
     index_dividend_yield_url: "https://cdn.efunds.com.cn/etf-net/index_dividend_ratio_930955.json"
 
+  - name: "中证国新港股通央企红利指数"
+    code: "931722"
+    type: "valuation"
+    index_detail_url: "https://www.etf.com.cn/api/etf-api-service/index/detail?indexCode=931722"
+
   # - name: "红利低波100ETF(博时)"
   #   code: "159307"
   #   type: "etf"
