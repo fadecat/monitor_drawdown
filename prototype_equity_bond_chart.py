@@ -7,6 +7,7 @@ from typing import Dict, List, Optional, Tuple
 
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
+from matplotlib import font_manager
 from matplotlib.offsetbox import AnchoredOffsetbox, HPacker, TextArea
 from matplotlib.patches import Circle, FancyBboxPatch, Wedge
 import pandas as pd
@@ -17,6 +18,20 @@ import monitor_drawdown as md
 GAUGE_COLORS = ["#c5d9f0", "#dde6f2", "#f5e6d3", "#f4b9a0", "#d94f3a"]
 BAND_COLORS = ["#dbe6f4", "#e8ebee", "#f5efe2", "#efc4ac", "#dc8772"]
 LEVELS = ["极低", "较低", "适中", "较高", "极高"]
+PREFERRED_CJK_FONTS = [
+    "Noto Sans CJK SC",
+    "Noto Sans CJK JP",
+    "Microsoft YaHei",
+    "SimHei",
+    "PingFang SC",
+    "WenQuanYi Zen Hei",
+]
+
+
+def pick_available_font_family() -> List[str]:
+    available = {font.name for font in font_manager.fontManager.ttflist}
+    selected = [name for name in PREFERRED_CJK_FONTS if name in available]
+    return selected + ["DejaVu Sans"]
 
 
 def pick_target_from_config(config_path: str) -> Dict:
@@ -161,7 +176,7 @@ def build_plot(item: Dict, trend: pd.DataFrame, output_path: Path) -> None:
     relation = "高于" if spread_current > spread_avg_5y else "低于"
     category, advice = level_to_category_and_advice(level)
 
-    plt.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei", "Arial Unicode MS", "DejaVu Sans"]
+    plt.rcParams["font.sans-serif"] = pick_available_font_family()
     plt.rcParams["axes.unicode_minus"] = False
 
     fig = plt.figure(figsize=(960 / 180, 1360 / 180), dpi=180)
