@@ -25,7 +25,7 @@ targets:
     type: "valuation"
     index_detail_url: "https://www.etf.com.cn/api/etf-api-service/index/detail?indexCode=931233"
 
-  - name: "香港证券投资主题指数"
+  - name: "香港证券指数"
     code: "930709"
     type: "valuation"
     index_detail_url: "https://www.etf.com.cn/api/etf-api-service/index/detail?indexCode=930709"

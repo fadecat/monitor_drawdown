@@ -4,6 +4,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
 from html import escape
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import akshare as ak
@@ -28,6 +29,7 @@ DEFAULT_INDEX_DETAIL_URL_TEMPLATE = "https://www.etf.com.cn/api/etf-api-service/
 DEFAULT_INDEX_DIVIDEND_YIELD_URL_TEMPLATE = (
     "https://cdn.efunds.com.cn/etf-net/index_dividend_ratio_{index_code}.json"
 )
+DEFAULT_INDEX_EOD_PRICE_URL_TEMPLATE = "https://cdn.efunds.com.cn/etf-net/index_eod_price_{index_code}.json"
 DEFAULT_INDEX_VALUATION_PERCENTILE_URL_TEMPLATE = (
     "https://cdn.efunds.com.cn/etf-net/index_valuation_percentile_{index_code}.json"
 )
@@ -368,6 +370,13 @@ def build_index_dividend_yield_url(index_code: str) -> str:
     return DEFAULT_INDEX_DIVIDEND_YIELD_URL_TEMPLATE.format(index_code=digits)
 
 
+def build_index_eod_price_url(index_code: str) -> str:
+    digits = extract_index_digits(index_code)
+    if not digits:
+        raise ValueError(f"无法识别追踪指数代码: {index_code}")
+    return DEFAULT_INDEX_EOD_PRICE_URL_TEMPLATE.format(index_code=digits)
+
+
 def build_index_valuation_percentile_url(index_code: str) -> str:
     digits = extract_index_digits(index_code)
     if not digits:
@@ -461,6 +470,36 @@ def fetch_index_dividend_yield(index_code: str, url: str = "") -> Dict:
     )
     result["index_dividend_yield_source"] = source_url
     return result
+
+
+def parse_index_eod_price_rows(rows: object) -> pd.DataFrame:
+    if not isinstance(rows, list):
+        raise ValueError("指数 EOD 价格接口返回格式异常")
+
+    records: List[Dict] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        trade_date = parse_optional_date(row.get("trdDt"))
+        close_price = parse_float(row.get("pxClose"))
+        if trade_date is None or close_price is None:
+            continue
+        records.append({"date": trade_date, "close": close_price})
+
+    if not records:
+        raise ValueError("指数 EOD 价格接口未返回有效数据")
+
+    return pd.DataFrame(records).sort_values("date").reset_index(drop=True)
+
+
+def fetch_index_eod_price_data(code: str, start_date: str, end_date: str, url: str = "") -> pd.DataFrame:
+    source_url = url.strip() if url else build_index_eod_price_url(code)
+    rows = fetch_json_response("index_eod_price", source_url)
+    normalized = parse_index_eod_price_rows(rows)
+    clipped = clip_dataframe_by_date(normalized, start_date, end_date)
+    if clipped.empty:
+        raise ValueError(f"指数 EOD 价格在区间 {start_date}-{end_date} 内无数据")
+    return clipped
 
 
 INDEX_VALUATION_METRIC_FIELDS = {
@@ -778,6 +817,13 @@ def fetch_etf_data(code: str, start_date: str, end_date: str) -> pd.DataFrame:
 
 def fetch_index_data(code: str, start_date: str, end_date: str) -> pd.DataFrame:
     errors: List[str] = []
+
+    # 首选源: 易方达指数 EOD JSON（对多数指数代码更稳定）
+    try:
+        return fetch_index_eod_price_data(code, start_date, end_date)
+    except Exception as exc:  # noqa: BLE001
+        errors.append(f"index_eod_price({code}): {exc}")
+        print(f"[WARN] 指数 EOD 数据源失败，准备尝试 TickFlow/AkShare: {exc}")
 
     tickflow_symbols = build_tickflow_index_symbols(code)
     if tickflow_symbols:
@@ -1492,7 +1538,7 @@ def _render_email_summary_table(triggered_items: List[Dict]) -> str:
     )
 
 
-def _render_email_item_percentile_block(item: Dict) -> str:
+def _render_email_item_percentile_block(item: Dict, chart_cid: Optional[str] = None) -> str:
     th_base = (
         f"padding:8px 10px;background:{EMAIL_BG_TABLE_HEAD};color:{EMAIL_LABEL_COLOR};"
         f"font-weight:500;font-size:11.5px;letter-spacing:0.3px;"
@@ -1573,14 +1619,23 @@ def _render_email_item_percentile_block(item: Dict) -> str:
     )
 
     valuation_row = _render_valuation_spread_row(item)
+    chart_html = ""
+    if chart_cid:
+        chart_html = (
+            f'<div style="margin-top:14px;text-align:center">'
+            f'<img src="cid:{escape(chart_cid)}" alt="股债性价比走势" '
+            f'style="max-width:100%;height:auto;border-radius:8px;display:block;margin:0 auto">'
+            f'</div>'
+        )
 
-    return title_html + table_html + valuation_row
+    return title_html + table_html + valuation_row + chart_html
 
 
 def build_email_html_content(
     triggered_items: List[Dict],
     valuation_items: Optional[List[Dict]] = None,
     current_time: Optional[datetime] = None,
+    chart_paths: Optional[Dict[str, Path]] = None,
 ) -> str:
     now_str = escape((current_time or now_in_beijing()).strftime("%Y-%m-%d %H:%M"))
 
@@ -1635,10 +1690,14 @@ def build_email_html_content(
         '</div>'
     )
 
-    blocks = [
-        _render_email_item_percentile_block(item) for item in all_items
-    ]
-    blocks = [b for b in blocks if b]
+    chart_paths = chart_paths or {}
+    blocks = []
+    for item in all_items:
+        code = str(item.get("index_code") or item.get("code") or "").strip()
+        chart_cid = f"equity_bond_{code}" if code and chart_paths.get(code) else None
+        block = _render_email_item_percentile_block(item, chart_cid=chart_cid)
+        if block:
+            blocks.append(block)
     divider = (
         f'<tr><td style="padding:24px 28px 0 28px">'
         f'<div style="height:1px;background:{EMAIL_BORDER_CARD_SPLIT};line-height:0;font-size:0">&nbsp;</div>'
@@ -1690,17 +1749,46 @@ def build_email_message(
     triggered_items: List[Dict],
     valuation_items: Optional[List[Dict]] = None,
     current_time: Optional[datetime] = None,
+    chart_paths: Optional[Dict[str, Path]] = None,
 ) -> EmailMessage:
     message = EmailMessage()
     message["From"] = sender
     message["To"] = ", ".join(recipients)
     message["Subject"] = subject
     message.set_content(build_email_plain_text_content(triggered_items, valuation_items=valuation_items, current_time=current_time))
-    message.add_alternative(build_email_html_content(triggered_items, valuation_items=valuation_items, current_time=current_time), subtype="html")
+    message.add_alternative(
+        build_email_html_content(
+            triggered_items,
+            valuation_items=valuation_items,
+            current_time=current_time,
+            chart_paths=chart_paths,
+        ),
+        subtype="html",
+    )
+    if chart_paths:
+        html_part = message.get_payload()[-1]
+        for index_code, png_path in chart_paths.items():
+            try:
+                with open(png_path, "rb") as file:
+                    img_bytes = file.read()
+                html_part.add_related(
+                    img_bytes,
+                    maintype="image",
+                    subtype="png",
+                    cid=f"<equity_bond_{index_code}>",
+                )
+            except Exception as exc:  # noqa: BLE001
+                print(f"[WARN] 邮件图表 {index_code} 挂载失败: {exc}")
     return message
 
 
-def send_email(config: Dict, triggered_items: List[Dict], valuation_items: Optional[List[Dict]] = None, current_time: Optional[datetime] = None) -> None:
+def send_email(
+    config: Dict,
+    triggered_items: List[Dict],
+    valuation_items: Optional[List[Dict]] = None,
+    current_time: Optional[datetime] = None,
+    chart_paths: Optional[Dict[str, Path]] = None,
+) -> None:
     message = build_email_message(
         config["sender"],
         config["recipients"],
@@ -1708,6 +1796,7 @@ def send_email(config: Dict, triggered_items: List[Dict], valuation_items: Optio
         triggered_items,
         valuation_items=valuation_items,
         current_time=current_time,
+        chart_paths=chart_paths,
     )
     with smtplib.SMTP_SSL(config["smtp_host"], config["smtp_port"], timeout=15) as smtp:
         smtp.login(config["username"], config["password"])
@@ -1900,7 +1989,38 @@ def main() -> None:
         try:
             email_config = load_email_config_from_env()
             if email_config:
-                send_email(email_config, triggered, valuation_items=valuation_items, current_time=current_time)
+                chart_paths: Dict[str, Path] = {}
+                try:
+                    from pathlib import Path as _Path
+                    from prototype_equity_bond_chart import generate_equity_bond_chart
+
+                    chart_output_dir = _Path(".email_chart_cache")
+                    for v_item in (valuation_items or []):
+                        target = {
+                            "name": v_item.get("name"),
+                            "code": v_item.get("code"),
+                            "index_code": v_item.get("index_code"),
+                            "type": "valuation",
+                            "index_valuation_percentile_source": v_item.get("index_valuation_percentile_source", ""),
+                            "index_valuation_percentile_url": v_item.get("index_valuation_percentile_source", ""),
+                            "index_dividend_yield_url": v_item.get("index_dividend_yield_source", ""),
+                        }
+                        png_path = generate_equity_bond_chart(target, chart_output_dir)
+                        if png_path is not None:
+                            code = str(v_item.get("index_code") or v_item.get("code") or "").strip()
+                            if code:
+                                chart_paths[code] = png_path
+                except Exception as exc:  # noqa: BLE001
+                    print(f"[WARN] 邮件图表批量生成异常，邮件将不带图发送: {exc}")
+                    chart_paths = {}
+
+                send_email(
+                    email_config,
+                    triggered,
+                    valuation_items=valuation_items,
+                    current_time=current_time,
+                    chart_paths=chart_paths,
+                )
             else:
                 print("[INFO] 未配置 RECEIVER_EMAIL/SMTP_USER/SMTP_PASS，跳过邮件发送。")
         except Exception as exc:  # noqa: BLE001

@@ -84,6 +84,12 @@ def test_fetch_etf_data_prefers_tickflow(monkeypatch):
 
 
 def test_fetch_index_data_falls_back_to_akshare(monkeypatch):
+    monkeypatch.setattr(
+        md.requests,
+        "get",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("EOD source unavailable")),
+    )
+
     empty_tickflow_df = pd.DataFrame(columns=["trade_date", "close"])
     akshare_df = pd.DataFrame(
         {
@@ -98,6 +104,30 @@ def test_fetch_index_data_falls_back_to_akshare(monkeypatch):
         lambda: FakeTickFlowClient({"930955.SH": empty_tickflow_df, "930955.SZ": empty_tickflow_df}),
     )
     monkeypatch.setattr(md.ak, "stock_zh_index_daily_em", lambda **kwargs: akshare_df, raising=False)
+
+    result = md.fetch_index_data("930955", "20260301", "20260331")
+
+    assert result["date"].dt.strftime("%Y-%m-%d").tolist() == ["2026-03-20", "2026-03-23"]
+    assert result["close"].tolist() == [4567.018, 4417.997]
+
+
+def test_fetch_index_data_prefers_efunds_eod_price(monkeypatch):
+    eod_rows = [
+        {"trdDt": "2026-03-20", "pxClose": 4567.018, "trdCode": "930955"},
+        {"trdDt": "2026-03-23", "pxClose": 4417.997, "trdCode": "930955"},
+    ]
+    monkeypatch.setattr(md.requests, "get", lambda *args, **kwargs: FakeResponse(eod_rows))
+    monkeypatch.setattr(
+        md,
+        "fetch_tickflow_klines",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("TickFlow should not be called")),
+    )
+    monkeypatch.setattr(
+        md.ak,
+        "stock_zh_index_daily_em",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("AkShare should not be called")),
+        raising=False,
+    )
 
     result = md.fetch_index_data("930955", "20260301", "20260331")
 
