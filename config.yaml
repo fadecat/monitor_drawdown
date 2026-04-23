@@ -1,5 +1,5 @@
 targets:
-  - name: "中证红利低波动100"
+  - name: "红利低波动100"
     code: "930955"
     type: "valuation"
     index_detail_url: "https://www.etf.com.cn/api/etf-api-service/index/detail?indexCode=930955"
@@ -14,13 +14,18 @@ targets:
     code: "399303"
     type: "valuation"
     index_detail_url: "https://www.etf.com.cn/api/etf-api-service/index/detail?indexCode=399303"
-
-  - name: "中证国新港股通央企红利指数"
-    code: "931722"
+  
+  - name: "深证成长40指数"
+    code: "399326"
     type: "valuation"
-    index_detail_url: "https://www.etf.com.cn/api/etf-api-service/index/detail?indexCode=931722"
+    index_detail_url: "https://www.etf.com.cn/api/etf-api-service/index/detail?indexCode=399326"
 
-  - name: "中证香港证券投资主题指数"
+  - name: "港股通央企红利"
+    code: "931233"
+    type: "valuation"
+    index_detail_url: "https://www.etf.com.cn/api/etf-api-service/index/detail?indexCode=931233"
+
+  - name: "香港证券投资主题指数"
     code: "930709"
     type: "valuation"
     index_detail_url: "https://www.etf.com.cn/api/etf-api-service/index/detail?indexCode=930709"

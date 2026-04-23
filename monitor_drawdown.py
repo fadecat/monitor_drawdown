@@ -411,28 +411,46 @@ def parse_index_dividend_yield_rows(rows: object, fallback_index_code: str = "")
     if not isinstance(rows, list):
         raise ValueError("追踪指数股息率接口返回格式异常")
 
-    latest: Optional[Dict] = None
+    records: List[Dict] = []
     for row in rows:
         if not isinstance(row, dict):
             continue
-
         dividend_yield = parse_float(row.get("dividendYield"))
         trade_date = parse_optional_date(row.get("trdDt"))
         if dividend_yield is None or trade_date is None:
             continue
+        records.append({
+            "date": pd.Timestamp(trade_date),
+            "yield": dividend_yield,
+            "code": str(row.get("trdCode") or fallback_index_code).strip(),
+        })
 
-        index_code = str(row.get("trdCode") or fallback_index_code).strip()
-        parsed = {
-            "index_code": index_code,
-            "index_dividend_yield": dividend_yield,
-            "index_dividend_yield_date": trade_date.strftime("%Y-%m-%d"),
-        }
-        if latest is None or trade_date > pd.Timestamp(latest["index_dividend_yield_date"]):
-            latest = parsed
-
-    if latest is None:
+    if not records:
         raise ValueError("追踪指数股息率接口未返回有效数据")
-    return latest
+
+    df = pd.DataFrame(records).sort_values("date").reset_index(drop=True)
+    latest = df.iloc[-1]
+    result: Dict = {
+        "index_code": str(latest["code"] or fallback_index_code).strip(),
+        "index_dividend_yield": float(latest["yield"]),
+        "index_dividend_yield_date": latest["date"].strftime("%Y-%m-%d"),
+    }
+
+    latest_date = latest["date"]
+    percentiles: Dict[str, float] = {}
+    for label, years in [("1Y", 1), ("3Y", 3), ("5Y", 5), ("10Y", 10)]:
+        cutoff = latest_date - pd.DateOffset(years=years)
+        window = df.loc[df["date"] >= cutoff, "yield"]
+        if len(window) >= 20:
+            percentiles[label] = round(float((window <= latest["yield"]).mean() * 100), 2)
+    if percentiles:
+        result["index_dividend_yield_percentiles"] = percentiles
+
+    avg_window = df.loc[df["date"] >= latest_date - pd.DateOffset(years=5), "yield"]
+    if not avg_window.empty:
+        result["index_dividend_yield_average_5y"] = round(float(avg_window.mean()), 4)
+
+    return result
 
 
 def fetch_index_dividend_yield(index_code: str, url: str = "") -> Dict:
@@ -628,23 +646,23 @@ def compute_equity_bond_spread_percentiles(
                 if len(rw) >= 20:
                     ratio_percentiles[label] = round(float((rw["ratio"] < current_ratio).mean() * 100), 2)
 
-    avg_10y_window = merged[merged["date"] >= latest_date - pd.DateOffset(years=10)]
-    avg_10y = round(float(avg_10y_window["spread"].mean()), 4) if not avg_10y_window.empty else None
-    ratio_avg_10y = None
+    avg_5y_window = merged[merged["date"] >= latest_date - pd.DateOffset(years=5)]
+    avg_5y = round(float(avg_5y_window["spread"].mean()), 4) if not avg_5y_window.empty else None
+    ratio_avg_5y = None
     if current_ratio is not None:
-        rw10 = avg_10y_window.dropna(subset=["ratio"])
-        if not rw10.empty:
-            ratio_avg_10y = round(float(rw10["ratio"].mean()), 4)
+        rw5 = avg_5y_window.dropna(subset=["ratio"])
+        if not rw5.empty:
+            ratio_avg_5y = round(float(rw5["ratio"].mean()), 4)
 
     result: Dict = {
         "current": round(current_spread, 4),
         "percentiles": percentiles,
-        "average_10y": avg_10y,
+        "average_5y": avg_5y,
     }
     if current_ratio is not None:
         result["ratio_current"] = round(current_ratio, 4)
         result["ratio_percentiles"] = ratio_percentiles
-        result["ratio_average_10y"] = ratio_avg_10y
+        result["ratio_average_5y"] = ratio_avg_5y
     return result
 
 
@@ -1243,20 +1261,20 @@ def _format_equity_bond_spread_text(item: Dict) -> str:
     formula = f" (1/PE − {bond_yield:.2f}% 10Y债)" if bond_yield is not None else ""
     spread_data = item.get("equity_bond_spread") or {}
     spread_pcts = spread_data.get("percentiles") or {}
-    avg_10y = parse_float(spread_data.get("average_10y"))
+    avg_5y = parse_float(spread_data.get("average_5y"))
     w_label, w_pct = _pick_window(spread_pcts)
     context = ""
     if w_label is not None and w_pct is not None:
         context = f"，超过{_WINDOW_CN[w_label]} {w_pct:.2f}% 时间"
-        if avg_10y is not None:
-            direction = "高于" if ebr >= avg_10y else "低于"
-            context += f"，{direction}10年均值 {avg_10y:+.2f}%"
+        if avg_5y is not None:
+            direction = "高于" if ebr >= avg_5y else "低于"
+            context += f"，{direction}5年均值 {avg_5y:+.2f}%"
     lines = [f"股债收益差: {ebr:+.2f}%{formula}{context}"]
 
     ratio_cur = parse_float(spread_data.get("ratio_current"))
     if ratio_cur is not None:
         ratio_pcts = spread_data.get("ratio_percentiles") or {}
-        ratio_avg = parse_float(spread_data.get("ratio_average_10y"))
+        ratio_avg = parse_float(spread_data.get("ratio_average_5y"))
         ratio_formula = f" (1/PE ÷ {bond_yield:.2f}% 10Y债)" if bond_yield is not None else ""
         rw_label, rw_pct = _pick_window(ratio_pcts)
         ratio_context = ""
@@ -1264,7 +1282,7 @@ def _format_equity_bond_spread_text(item: Dict) -> str:
             ratio_context = f"，超过{_WINDOW_CN[rw_label]} {rw_pct:.2f}% 时间"
             if ratio_avg is not None:
                 direction = "高于" if ratio_cur >= ratio_avg else "低于"
-                ratio_context += f"，{direction}10年均值 {ratio_avg:.2f}x"
+                ratio_context += f"，{direction}5年均值 {ratio_avg:.2f}x"
         lines.append(f"股债比值法: {ratio_cur:.2f}x{ratio_formula}{ratio_context}")
     return "\n".join(lines)
 
@@ -1291,77 +1309,94 @@ def _spread_main_color(value: float, pct_10y: Optional[float], par: float) -> Tu
 def _render_spread_cell(
     label: str,
     main_html: str,
-    pct_10y: Optional[float],
-    avg_10y: Optional[float],
+    pct: Optional[float],
+    avg: Optional[float],
     avg_formatter,
     pct_color: Optional[str],
     border_left: bool,
+    width: str = "50%",
 ) -> str:
-    cell_style = "padding-right:12px" if not border_left else (
-        f"padding-left:12px;border-left:1px solid {EMAIL_BORDER_SPLIT}"
+    cell_style = "padding-right:10px" if not border_left else (
+        f"padding-left:10px;padding-right:10px;border-left:1px solid {EMAIL_BORDER_SPLIT}"
     )
     pct_html = "-"
-    if pct_10y is not None:
-        pct_text = f"{pct_10y:.2f}%"
+    if pct is not None:
+        pct_text = f"{pct:.2f}%"
         if pct_color:
             pct_html = f'<b style="color:{pct_color}">{escape(pct_text)}</b>'
         else:
             pct_html = f'<span style="color:{EMAIL_MUTED_COLOR};font-weight:600">{escape(pct_text)}</span>'
-    avg_html = f'<span style="color:{EMAIL_MUTED_COLOR};font-weight:600">{avg_formatter(avg_10y)}</span>' if avg_10y is not None else "-"
+    avg_html = f'<span style="color:{EMAIL_MUTED_COLOR};font-weight:600">{avg_formatter(avg)}</span>' if avg is not None else "-"
     return (
-        f'<td width="50%" valign="top" style="{cell_style}">'
+        f'<td width="{width}" valign="top" style="{cell_style}">'
         f'<div style="font-size:12px;color:{EMAIL_MUTED_COLOR};letter-spacing:0.2px">{escape(label)}</div>'
         f'<div style="margin-top:2px;line-height:1.2">{main_html}</div>'
         f'<div style="font-size:11px;color:{EMAIL_LABEL_COLOR};margin-top:4px">'
-        f'10Y分位 {pct_html}&nbsp;·&nbsp;10Y均值 {avg_html}'
+        f'5Y分位 {pct_html}&nbsp;·&nbsp;5Y均值 {avg_html}'
         f'</div>'
         f'</td>'
     )
 
 
-def _render_equity_bond_spread_line(item: Dict) -> str:
-    ebr = parse_float(item.get("equity_bond_ratio"))
-    if ebr is None:
-        return ""
-    spread_data = item.get("equity_bond_spread") or {}
-    spread_pcts = spread_data.get("percentiles") or {}
-    avg_10y = parse_float(spread_data.get("average_10y"))
-    pct_10y_diff = parse_float(spread_pcts.get("10Y"))
+def _render_valuation_spread_row(item: Dict) -> str:
+    """股息率 + 股债收益差 + 股债比值法 合并为一行平均分布。"""
+    specs: List[Tuple] = []
 
-    diff_color, diff_pct_color = _spread_main_color(ebr, pct_10y_diff, 0.0)
-    diff_main_html = (
-        f'<span style="font-size:22px;font-weight:700;color:{diff_color}">'
-        f'{escape(_signed_percent(ebr))}</span>'
-    )
-    diff_cell = _render_spread_cell(
-        "股债收益差", diff_main_html, pct_10y_diff, avg_10y,
-        lambda v: escape(_signed_percent(v)), diff_pct_color, border_left=False,
-    )
-
-    ratio_cur = parse_float(spread_data.get("ratio_current"))
-    if ratio_cur is None:
-        return (
-            f'<table cellpadding="0" cellspacing="0" border="0" width="100%" '
-            f'style="border-collapse:collapse;margin-top:20px"><tr>{diff_cell}'
-            f'<td width="50%">&nbsp;</td></tr></table>'
+    dy = parse_float(item.get("index_dividend_yield"))
+    if dy is not None:
+        dy_pcts = item.get("index_dividend_yield_percentiles") or {}
+        dy_avg = parse_float(item.get("index_dividend_yield_average_5y"))
+        dy_pct = parse_float(dy_pcts.get("5Y"))
+        dy_color, dy_pct_color = _spread_main_color(dy, dy_pct, 0.0)
+        dy_main = (
+            f'<span style="font-size:22px;font-weight:700;color:{dy_color}">'
+            f'{escape(f"{dy:.2f}%")}</span>'
         )
+        specs.append(("股息率", dy_main, dy_pct, dy_avg,
+                      lambda v: escape(f"{v:.2f}%"), dy_pct_color))
 
-    ratio_pcts = spread_data.get("ratio_percentiles") or {}
-    ratio_avg = parse_float(spread_data.get("ratio_average_10y"))
-    pct_10y_ratio = parse_float(ratio_pcts.get("10Y"))
-    ratio_color, ratio_pct_color = _spread_main_color(ratio_cur, pct_10y_ratio, 1.0)
-    ratio_main_html = (
-        f'<span style="font-size:22px;font-weight:700;color:{ratio_color}">'
-        f'{escape(f"{ratio_cur:.2f}x")}</span>'
-    )
-    ratio_cell = _render_spread_cell(
-        "股债比值法", ratio_main_html, pct_10y_ratio, ratio_avg,
-        lambda v: escape(f"{v:.2f}x"), ratio_pct_color, border_left=True,
+    ebr = parse_float(item.get("equity_bond_ratio"))
+    if ebr is not None:
+        spread_data = item.get("equity_bond_spread") or {}
+        spread_pcts = spread_data.get("percentiles") or {}
+        spread_avg = parse_float(spread_data.get("average_5y"))
+        spread_pct = parse_float(spread_pcts.get("5Y"))
+        spread_color, spread_pct_color = _spread_main_color(ebr, spread_pct, 0.0)
+        spread_main = (
+            f'<span style="font-size:22px;font-weight:700;color:{spread_color}">'
+            f'{escape(_signed_percent(ebr))}</span>'
+        )
+        specs.append(("股债收益差", spread_main, spread_pct, spread_avg,
+                      lambda v: escape(_signed_percent(v)), spread_pct_color))
+
+        ratio_cur = parse_float(spread_data.get("ratio_current"))
+        if ratio_cur is not None:
+            ratio_pcts = spread_data.get("ratio_percentiles") or {}
+            ratio_avg = parse_float(spread_data.get("ratio_average_5y"))
+            ratio_pct = parse_float(ratio_pcts.get("5Y"))
+            ratio_color, ratio_pct_color = _spread_main_color(ratio_cur, ratio_pct, 1.0)
+            ratio_main = (
+                f'<span style="font-size:22px;font-weight:700;color:{ratio_color}">'
+                f'{escape(f"{ratio_cur:.2f}x")}</span>'
+            )
+            specs.append(("股债比值法", ratio_main, ratio_pct, ratio_avg,
+                          lambda v: escape(f"{v:.2f}x"), ratio_pct_color))
+
+    if not specs:
+        return ""
+
+    width = f"{100 // len(specs)}%"
+    cells_html = "".join(
+        _render_spread_cell(
+            label, main_html, pct_10y, avg_10y, fmt, pct_color,
+            border_left=(i > 0), width=width,
+        )
+        for i, (label, main_html, pct_10y, avg_10y, fmt, pct_color) in enumerate(specs)
     )
     return (
         f'<table cellpadding="0" cellspacing="0" border="0" width="100%" '
         f'style="border-collapse:collapse;margin-top:20px">'
-        f'<tr>{diff_cell}{ratio_cell}</tr></table>'
+        f'<tr>{cells_html}</tr></table>'
     )
 
 
@@ -1515,7 +1550,6 @@ def _render_email_item_percentile_block(item: Dict) -> str:
     index_name = str(
         item.get("index_name") or item.get("index_short_name") or item.get("name") or ""
     ).strip()
-    dividend_yield = item.get("index_dividend_yield")
 
     title_parts = [
         f'<span style="font-size:17px;font-weight:700;color:{EMAIL_TEXT_PRIMARY};'
@@ -1525,14 +1559,6 @@ def _render_email_item_percentile_block(item: Dict) -> str:
         title_parts.append(
             f'<span style="font-size:12px;color:{EMAIL_LABEL_COLOR};'
             f'margin-left:8px;font-weight:500">{escape(index_code)}</span>'
-        )
-    if dividend_yield is not None:
-        dy_text = format_optional_percent(dividend_yield, decimals=2, strip=False)
-        title_parts.append(
-            f'<span style="display:inline-block;margin-left:10px;padding:4px 12px;'
-            f'background:{EMAIL_BG_TAG};color:{EMAIL_LOW_COLOR};font-size:11.5px;'
-            f'font-weight:700;border-radius:12px;vertical-align:2px">'
-            f'股息率 {escape(dy_text)}</span>'
         )
     title_html = (
         f'<div style="margin-bottom:14px;line-height:1.4">{"".join(title_parts)}</div>'
@@ -1546,9 +1572,9 @@ def _render_email_item_percentile_block(item: Dict) -> str:
         '</table>'
     )
 
-    spread_div = _render_equity_bond_spread_line(item)
+    valuation_row = _render_valuation_spread_row(item)
 
-    return title_html + table_html + spread_div
+    return title_html + table_html + valuation_row
 
 
 def build_email_html_content(
