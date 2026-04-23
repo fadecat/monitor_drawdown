@@ -175,3 +175,7 @@ pip install akshare pandas requests pyyaml tickflow pytest pycryptodome
 python .\test_jisilu_index_patch.py
 JISILU_USERNAME=wobushibaobao JISILU_PASSWORD=yukihan007 python test_new_indices.py
 ```
+
+邮件里的估值配图已从股债性价比图切换为估值分位走势图。
+当前图面只展示 PE 走势主图，以及 PB、PB百分位、股息率三项指标。
+旧的 `prototype_equity_bond_chart.py` 仍保留，便于回滚或对照。

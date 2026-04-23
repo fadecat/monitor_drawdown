@@ -1538,7 +1538,7 @@ def _render_email_summary_table(triggered_items: List[Dict]) -> str:
     )
 
 
-def _render_email_item_percentile_block(item: Dict, chart_cid: Optional[str] = None) -> str:
+def _render_email_item_percentile_block(item: Dict) -> str:
     th_base = (
         f"padding:8px 10px;background:{EMAIL_BG_TABLE_HEAD};color:{EMAIL_LABEL_COLOR};"
         f"font-weight:500;font-size:11.5px;letter-spacing:0.3px;"
@@ -1619,16 +1619,7 @@ def _render_email_item_percentile_block(item: Dict, chart_cid: Optional[str] = N
     )
 
     valuation_row = _render_valuation_spread_row(item)
-    chart_html = ""
-    if chart_cid:
-        chart_html = (
-            f'<div style="margin-top:14px;text-align:center">'
-            f'<img src="cid:{escape(chart_cid)}" alt="股债性价比走势" '
-            f'style="max-width:100%;height:auto;border-radius:8px;display:block;margin:0 auto">'
-            f'</div>'
-        )
-
-    return title_html + table_html + valuation_row + chart_html
+    return title_html + table_html + valuation_row
 
 
 def build_email_html_content(
@@ -1695,7 +1686,7 @@ def build_email_html_content(
     for item in all_items:
         code = str(item.get("index_code") or item.get("code") or "").strip()
         chart_cid = f"equity_bond_{code}" if code and chart_paths.get(code) else None
-        block = _render_email_item_percentile_block(item, chart_cid=chart_cid)
+        block = _render_email_item_percentile_block(item)
         if block:
             blocks.append(block)
     divider = (
@@ -1706,6 +1697,16 @@ def build_email_html_content(
     card_rows = []
     for i, block in enumerate(blocks):
         card_rows.append(f'<tr><td style="padding:24px 28px 0 28px">{block}</td></tr>')
+        item = all_items[i]
+        code = str(item.get("index_code") or item.get("code") or "").strip()
+        chart_cid = f"equity_bond_{code}" if code and chart_paths.get(code) else None
+        if chart_cid:
+            card_rows.append(
+                f'<tr><td style="padding:14px 0 0 0">'
+                f'<img src="cid:{escape(chart_cid)}" alt="估值分位走势图" '
+                f'style="width:100%;max-width:100%;height:auto;display:block">'
+                f'</td></tr>'
+            )
         if i < len(blocks) - 1:
             card_rows.append(divider)
 
@@ -1728,7 +1729,7 @@ def build_email_html_content(
         f'width="100%" style="background:{EMAIL_BG_PAGE}">'
         f'<tr><td align="center" style="padding:24px 12px">'
         f'<table role="presentation" cellpadding="0" cellspacing="0" border="0" '
-        f'width="640" style="max-width:640px;background:#ffffff;border-radius:12px;overflow:hidden">'
+        f'width="780" style="max-width:780px;background:#ffffff;border-radius:12px;overflow:hidden">'
         f'<tr><td style="padding:22px 28px 16px 28px;border-bottom:1px solid {EMAIL_BORDER_CARD_SPLIT}">'
         f'<div style="font-size:20px;font-weight:700;color:{EMAIL_TEXT_PRIMARY};letter-spacing:-0.2px">'
         f'📊 指数估值监控</div>'
@@ -1992,20 +1993,21 @@ def main() -> None:
                 chart_paths: Dict[str, Path] = {}
                 try:
                     from pathlib import Path as _Path
-                    from prototype_equity_bond_chart import generate_equity_bond_chart
+                    from prototype_valuation_percentile_chart import generate_valuation_percentile_chart
 
                     chart_output_dir = _Path(".email_chart_cache")
                     for v_item in (valuation_items or []):
-                        target = {
-                            "name": v_item.get("name"),
-                            "code": v_item.get("code"),
-                            "index_code": v_item.get("index_code"),
-                            "type": "valuation",
-                            "index_valuation_percentile_source": v_item.get("index_valuation_percentile_source", ""),
-                            "index_valuation_percentile_url": v_item.get("index_valuation_percentile_source", ""),
-                            "index_dividend_yield_url": v_item.get("index_dividend_yield_source", ""),
-                        }
-                        png_path = generate_equity_bond_chart(target, chart_output_dir)
+                        target = dict(v_item)
+                        target.update(
+                            {
+                                "type": "valuation",
+                                "index_valuation_percentile_url": v_item.get(
+                                    "index_valuation_percentile_source", ""
+                                ),
+                                "index_dividend_yield_url": v_item.get("index_dividend_yield_source", ""),
+                            }
+                        )
+                        png_path = generate_valuation_percentile_chart(target, chart_output_dir)
                         if png_path is not None:
                             code = str(v_item.get("index_code") or v_item.get("code") or "").strip()
                             if code:

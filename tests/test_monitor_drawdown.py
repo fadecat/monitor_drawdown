@@ -390,3 +390,30 @@ def test_build_email_html_content_uses_table_and_escapes_values():
     assert "告警汇总" not in content
     assert "红利低波100ETF" not in content
     assert "追踪指数" not in content
+
+
+def test_build_email_html_content_uses_780px_container_and_full_bleed_chart():
+    content = md.build_email_html_content(
+        [],
+        valuation_items=[
+            {
+                "name": "中证红利低波动100指数",
+                "code": "930955",
+                "index_code": "930955",
+                "index_name": "中证红利低波动100指数",
+                "index_valuation_date": "2026-04-22",
+                "index_valuation_metrics": {
+                    "PE(TTM)": {"current": 9.19, "percentiles": {"5Y": 91.24}},
+                    "PB(LF)": {"current": 0.92, "percentiles": {"5Y": 89.01}},
+                },
+                "index_dividend_yield": 4.63,
+            }
+        ],
+        current_time=md.datetime(2026, 4, 23, 23, 45, tzinfo=md.BEIJING_TZ),
+        chart_paths={"930955": md.Path(".test_artifacts/valuation_percentile/valuation_percentile_930955.png")},
+    )
+
+    assert 'width="780"' in content
+    assert "max-width:780px" in content
+    assert 'padding:14px 0 0 0' in content
+    assert 'style="width:100%;max-width:100%;height:auto;display:block"' in content

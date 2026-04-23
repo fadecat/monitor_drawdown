@@ -53,21 +53,20 @@ def build_valuation_items(config_path: str) -> List[Dict]:
 
 
 def generate_chart_paths(valuation_items: List[Dict]) -> Dict[str, Path]:
-    from prototype_equity_bond_chart import generate_equity_bond_chart
+    from prototype_valuation_percentile_chart import generate_valuation_percentile_chart
 
     output_dir = Path(".email_chart_cache")
     chart_paths: Dict[str, Path] = {}
     for item in valuation_items:
-        target = {
-            "name": item.get("name"),
-            "code": item.get("code"),
-            "index_code": item.get("index_code"),
-            "type": "valuation",
-            "index_valuation_percentile_source": item.get("index_valuation_percentile_source", ""),
-            "index_valuation_percentile_url": item.get("index_valuation_percentile_source", ""),
-            "index_dividend_yield_url": item.get("index_dividend_yield_source", ""),
-        }
-        png_path = generate_equity_bond_chart(target, output_dir)
+        target = dict(item)
+        target.update(
+            {
+                "type": "valuation",
+                "index_valuation_percentile_url": item.get("index_valuation_percentile_source", ""),
+                "index_dividend_yield_url": item.get("index_dividend_yield_source", ""),
+            }
+        )
+        png_path = generate_valuation_percentile_chart(target, output_dir)
         if png_path is None:
             continue
         code = str(item.get("index_code") or item.get("code") or "").strip()

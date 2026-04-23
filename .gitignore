@@ -16,6 +16,8 @@ env/
 # Tooling caches
 .pytest_cache/
 .test_artifacts/
+.email_chart_cache/
+datacache/
 .mypy_cache/
 .ruff_cache/
 
@@ -24,6 +26,7 @@ env/
 *_output.txt
 preview_webhook_payload.json
 preview_webhook_message.md
+email_preview_with_charts.html
 
 # IDE / editor
 .vscode/
