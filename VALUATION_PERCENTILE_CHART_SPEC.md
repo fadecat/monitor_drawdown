@@ -244,6 +244,7 @@ def classify_level_by_percentile(pct: float) -> tuple[str, str]:
 - 2026-04-24 00:25 Codex：已按用户要求用中文提交信息在 `feat/valuation-percentile-chart` 创建提交 `df03807 新增估值分位走势图邮件展示`。
 - 2026-04-24 00:25 Codex：已创建见名知意的 main 备份分支 `backup/main-before-valuation-percentile-20260424`，指向旧 `main` 提交 `0d16f7b`，并已推送到远程。
 - 2026-04-24 00:25 Codex：已将本地 `main` 通过 `git merge --ff-only feat/valuation-percentile-chart` 快进到估值分位图提交；已在 `main` 上执行 `python -m pytest tests/test_monitor_drawdown.py tests/test_valuation_percentile_chart.py -v`，结果 `21 passed, 3 warnings`。下一步推送 `main` 到远程。
+- 2026-04-24 00:29 Codex：收到 GitHub Actions 中文字体告警：新估值图模块固定传入 `Microsoft YaHei` / `Noto Sans CJK SC` / `SimHei`，Actions 中未命中的字体会触发 findfont 并回落到 DejaVu Sans。已按旧图模块 `fix: 修复Actions中文字体缺失告警` 的策略，在 `prototype_valuation_percentile_chart.py` 中改为从 Matplotlib 当前可见字体里选择可用 CJK 字体；`.github/workflows/monitor.yml` 保持直接安装 `fonts-noto-cjk`。按用户要求，本轮不新增/运行测试。
 
 ---
 

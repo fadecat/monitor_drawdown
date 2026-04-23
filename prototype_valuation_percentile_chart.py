@@ -7,6 +7,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
+from matplotlib import font_manager
 from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
 from matplotlib.ticker import FormatStrFormatter
@@ -18,6 +19,14 @@ import monitor_drawdown as md
 
 FIGURE_DPI = 180
 FIGURE_SIZE = (14, 7.8)
+PREFERRED_CJK_FONTS = [
+    "Noto Sans CJK SC",
+    "Noto Sans CJK JP",
+    "Microsoft YaHei",
+    "SimHei",
+    "PingFang SC",
+    "WenQuanYi Zen Hei",
+]
 AX_BOUNDS = {
     "header": [0.04, 0.80, 0.92, 0.17],
     "metrics": [0.04, 0.68, 0.92, 0.09],
@@ -69,6 +78,12 @@ LEVEL_ORDER = {
     70: ("估值偏高", PALETTE["level_abovemid"]),
     90: ("估值极高", PALETTE["level_high"]),
 }
+
+
+def pick_available_font_family() -> list[str]:
+    available = {font.name for font in font_manager.fontManager.ttflist}
+    selected = [name for name in PREFERRED_CJK_FONTS if name in available]
+    return selected + ["DejaVu Sans"]
 
 
 def classify_level_by_percentile(pct: float) -> tuple[str, str]:
@@ -484,7 +499,8 @@ def _draw_footer(ax, data: Dict) -> None:
 
 def _build_figure(target: Dict, data: Dict) -> Figure:
     del target
-    plt.rcParams["font.family"] = ["Microsoft YaHei", "Noto Sans CJK SC", "SimHei", "DejaVu Sans"]
+    plt.rcParams["font.sans-serif"] = pick_available_font_family()
+    plt.rcParams["font.family"] = "sans-serif"
     plt.rcParams["axes.unicode_minus"] = False
 
     fig = plt.figure(figsize=FIGURE_SIZE, dpi=FIGURE_DPI, facecolor=PALETTE["background"])
