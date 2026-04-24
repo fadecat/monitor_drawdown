@@ -9,7 +9,6 @@ import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 from matplotlib import font_manager
 from matplotlib.figure import Figure
-from matplotlib.lines import Line2D
 from matplotlib.ticker import FormatStrFormatter
 import numpy as np
 import pandas as pd
@@ -18,7 +17,7 @@ import monitor_drawdown as md
 
 
 FIGURE_DPI = 180
-FIGURE_SIZE = (14, 7.8)
+FIGURE_SIZE = (14, 5.2)
 PREFERRED_CJK_FONTS = [
     "Noto Sans CJK SC",
     "Noto Sans CJK JP",
@@ -28,55 +27,27 @@ PREFERRED_CJK_FONTS = [
     "WenQuanYi Zen Hei",
 ]
 AX_BOUNDS = {
-    "header": [0.04, 0.80, 0.92, 0.17],
-    "metrics": [0.04, 0.68, 0.92, 0.09],
-    "chart": [0.07, 0.10, 0.90, 0.52],
-    "footer": [0.04, 0.02, 0.92, 0.04],
+    "chart": [0.07, 0.16, 0.90, 0.70],
+    "footer": [0.04, 0.03, 0.92, 0.07],
 }
 PALETTE = {
     "background": "#ffffff",
     "orange": "#ed7c2b",
-    "orange_soft": "#ef8a3f",
     "text_primary": "#1f1f1f",
-    "text_metric": "#242424",
     "text_muted": "#8a8a8a",
-    "divider": "#ececec",
     "grid": "#f0f0f0",
     "spine": "#d0d0d0",
     "pct_low": "#2f9e4f",
     "pct_mid": "#9aa0a6",
     "pct_high": "#d94f3a",
-    "level_low": "#2f9e4f",
-    "level_belowmid": "#6fbf73",
-    "level_mid": "#9aa0a6",
-    "level_abovemid": "#e89b3b",
-    "level_high": "#d94f3a",
 }
 FONT_SIZES = {
-    "index_name": 26,
-    "index_name_medium": 22,
-    "index_name_small": 20,
-    "lead": 13,
-    "level": 26,
-    "pe_label": 12,
-    "headline_value": 22,
-    "metric_label": 12,
-    "metric_value": 18,
     "legend": 12,
     "main_title": 14,
     "y_tick": 10,
     "x_tick": 11,
     "latest_label": 11,
     "footer": 9,
-    "window_note": 9,
-}
-WINDOW_LABELS = {"1Y": "近1年", "3Y": "近3年", "5Y": "近5年", "10Y": "近10年"}
-LEVEL_ORDER = {
-    10: ("估值极低", PALETTE["level_low"]),
-    30: ("估值偏低", PALETTE["level_belowmid"]),
-    50: ("估值合理", PALETTE["level_mid"]),
-    70: ("估值偏高", PALETTE["level_abovemid"]),
-    90: ("估值极高", PALETTE["level_high"]),
 }
 
 
@@ -84,57 +55,6 @@ def pick_available_font_family() -> list[str]:
     available = {font.name for font in font_manager.fontManager.ttflist}
     selected = [name for name in PREFERRED_CJK_FONTS if name in available]
     return selected + ["DejaVu Sans"]
-
-
-def classify_level_by_percentile(pct: float) -> tuple[str, str]:
-    if pct < 20:
-        return "估值极低", PALETTE["level_low"]
-    if pct < 40:
-        return "估值偏低", PALETTE["level_belowmid"]
-    if pct < 60:
-        return "估值合理", PALETTE["level_mid"]
-    if pct < 80:
-        return "估值偏高", PALETTE["level_abovemid"]
-    return "估值极高", PALETTE["level_high"]
-
-
-def _parse_float(value: object) -> Optional[float]:
-    return md.parse_float(value)
-
-
-def _format_number(value: object, suffix: str = "", decimals: int = 2) -> str:
-    parsed = _parse_float(value)
-    if parsed is None:
-        return "-"
-    return f"{parsed:.{decimals}f}{suffix}"
-
-
-def _get_metric_block(item: Dict, metric_name: str) -> Dict:
-    metrics = item.get("index_valuation_metrics")
-    if not isinstance(metrics, dict):
-        return {}
-    metric = metrics.get(metric_name)
-    return metric if isinstance(metric, dict) else {}
-
-
-def _get_metric_current(item: Dict, metric_name: str) -> Optional[float]:
-    return _parse_float(_get_metric_block(item, metric_name).get("current"))
-
-
-def _get_metric_percentile(item: Dict, metric_name: str, label: str) -> Optional[float]:
-    metric = _get_metric_block(item, metric_name)
-    percentiles = metric.get("percentiles")
-    if not isinstance(percentiles, dict):
-        return None
-    return _parse_float(percentiles.get(label))
-
-
-def _pick_percentile_window(item: Dict, metric_name: str) -> Tuple[Optional[str], Optional[float]]:
-    for label in ("5Y", "10Y", "3Y", "1Y"):
-        value = _get_metric_percentile(item, metric_name, label)
-        if value is not None:
-            return label, value
-    return None, None
 
 
 def _resolve_chart_item(target: Dict) -> Optional[Dict]:
@@ -189,175 +109,19 @@ def _prepare_chart_data(target: Dict) -> Optional[Dict]:
     if not item:
         return None
 
-    pct_label, pct_value = _pick_percentile_window(item, "PE(TTM)")
-    pe_current = _get_metric_current(item, "PE(TTM)")
-    if pct_label is None or pct_value is None or pe_current is None:
-        return None
-
     history, footnote = _build_history_frame(item)
     if len(history) < 20:
         return None
 
     q30, q50, q70 = [float(value) for value in history["pe"].quantile([0.3, 0.5, 0.7]).tolist()]
-    latest_date = pd.Timestamp(history["date"].iloc[-1])
-    level_text, level_color = classify_level_by_percentile(pct_value)
     return {
         "item": item,
         "history": history,
-        "pe_current": pe_current,
-        "pct_label": pct_label,
-        "pct_value": pct_value,
-        "pb_current": _get_metric_current(item, "PB(LF)"),
-        "pb_percentile": _get_metric_percentile(item, "PB(LF)", "5Y"),
-        "dividend_yield": _parse_float(item.get("index_dividend_yield")),
         "q30": q30,
         "q50": q50,
         "q70": q70,
-        "latest_date": latest_date,
-        "level_text": level_text,
-        "level_color": level_color,
-        "lower_time_pct": 100.0 - pct_value,
-        "window_note": "" if pct_label == "5Y" else f"分位窗口：{WINDOW_LABELS.get(pct_label, pct_label)}",
         "footnote": footnote,
     }
-
-
-def _draw_header(ax, data: Dict) -> None:
-    item = data["item"]
-    latest_date = pd.Timestamp(data["latest_date"])
-    pct_value = float(data["pct_value"])
-    ax.set_axis_off()
-    ax.text(
-        0.00,
-        0.55,
-        "比过去",
-        transform=ax.transAxes,
-        fontsize=FONT_SIZES["lead"],
-        color=PALETTE["text_muted"],
-        ha="left",
-        va="center",
-    )
-    ax.text(
-        0.075,
-        0.55,
-        f"{data['lower_time_pct']:.2f}%",
-        transform=ax.transAxes,
-        fontsize=FONT_SIZES["lead"],
-        color=PALETTE["orange"],
-        ha="left",
-        va="center",
-    )
-    ax.text(
-        0.165,
-        0.55,
-        "的时间低",
-        transform=ax.transAxes,
-        fontsize=FONT_SIZES["lead"],
-        color=PALETTE["text_muted"],
-        ha="left",
-        va="center",
-    )
-    ax.text(
-        0.00,
-        0.18,
-        data["level_text"],
-        transform=ax.transAxes,
-        fontsize=FONT_SIZES["level"],
-        fontweight="bold",
-        color=data["level_color"],
-        ha="left",
-        va="bottom",
-    )
-    if data["window_note"]:
-        ax.text(
-            0.00,
-            0.05,
-            data["window_note"],
-            transform=ax.transAxes,
-            fontsize=FONT_SIZES["window_note"],
-            color=PALETTE["text_muted"],
-            ha="left",
-            va="bottom",
-        )
-
-    ax.plot([0.30, 0.30], [0.12, 0.88], transform=ax.transAxes, color=PALETTE["divider"], linewidth=1)
-    ax.text(
-        0.35,
-        0.72,
-        f"PE {latest_date.strftime('%m-%d')}",
-        transform=ax.transAxes,
-        fontsize=FONT_SIZES["pe_label"],
-        color=PALETTE["text_muted"],
-        ha="left",
-        va="center",
-    )
-    ax.text(
-        0.35,
-        0.30,
-        f"{data['pe_current']:.2f}",
-        transform=ax.transAxes,
-        fontsize=FONT_SIZES["headline_value"],
-        fontweight="semibold",
-        color=PALETTE["text_primary"],
-        ha="left",
-        va="center",
-    )
-    ax.text(
-        0.60,
-        0.72,
-        "PE百分位",
-        transform=ax.transAxes,
-        fontsize=FONT_SIZES["pe_label"],
-        color=PALETTE["text_muted"],
-        ha="left",
-        va="center",
-    )
-    ax.text(
-        0.60,
-        0.30,
-        f"{pct_value:.2f}%",
-        transform=ax.transAxes,
-        fontsize=FONT_SIZES["headline_value"],
-        fontweight="semibold",
-        color=PALETTE["text_primary"],
-        ha="left",
-        va="center",
-    )
-
-
-def _draw_metric_band(ax, data: Dict) -> None:
-    cells = [
-        ("PB", _format_number(data["pb_current"])),
-        ("PB百分位", _format_number(data["pb_percentile"], suffix="%")),
-        ("股息率", _format_number(data["dividend_yield"], suffix="%")),
-    ]
-    centers = [0.167, 0.500, 0.833]
-
-    ax.set_axis_off()
-    for divider_x in (0.333, 0.667):
-        ax.plot([divider_x, divider_x], [0.15, 0.85], transform=ax.transAxes, color=PALETTE["divider"], linewidth=1)
-
-    for (label, value), center_x in zip(cells, centers):
-        ax.text(
-            center_x,
-            0.75,
-            label,
-            transform=ax.transAxes,
-            fontsize=FONT_SIZES["metric_label"],
-            color=PALETTE["text_muted"],
-            ha="center",
-            va="center",
-        )
-        ax.text(
-            center_x,
-            0.30,
-            value,
-            transform=ax.transAxes,
-            fontsize=FONT_SIZES["metric_value"],
-            color=PALETTE["text_metric"],
-            ha="center",
-            va="center",
-        )
 
 
 def _draw_main_chart(ax, data: Dict) -> None:
@@ -504,24 +268,9 @@ def _build_figure(target: Dict, data: Dict) -> Figure:
     plt.rcParams["axes.unicode_minus"] = False
 
     fig = plt.figure(figsize=FIGURE_SIZE, dpi=FIGURE_DPI, facecolor=PALETTE["background"])
-    header_ax = fig.add_axes(AX_BOUNDS["header"])
-    metrics_ax = fig.add_axes(AX_BOUNDS["metrics"])
     chart_ax = fig.add_axes(AX_BOUNDS["chart"])
     footer_ax = fig.add_axes(AX_BOUNDS["footer"])
 
-    for y in (0.78, 0.66):
-        fig.add_artist(
-            Line2D(
-                [0.04, 0.96],
-                [y, y],
-                transform=fig.transFigure,
-                color=PALETTE["divider"],
-                linewidth=0.8,
-            )
-        )
-
-    _draw_header(header_ax, data)
-    _draw_metric_band(metrics_ax, data)
     _draw_main_chart(chart_ax, data)
     _draw_footer(footer_ax, data)
     return fig

@@ -58,6 +58,8 @@ git switch -c feat/valuation-percentile-chart
 
 ### 3.2 顶部标题+结论带（高度 ~140px）
 
+> **已废弃（修订 6，2026-04-24）**：该带已从 PNG 中整体移除，相关 PE 当前值、PE百分位、档位等信息改由邮件表格层呈现。下列内容保留作历史参考。
+
 从左到右：
 
 1. 左上：**指数中文名**，字号 ~28pt 粗体（例：`中证红利`）
@@ -79,6 +81,8 @@ git switch -c feat/valuation-percentile-chart
    - `PE百分位` 小灰字 + 下行大数字（pct_5y，2 位小数 + `%`）
 
 ### 3.3 中部指标格带（高度 ~90px，单行 3 格，左对齐）
+
+> **已废弃（修订 6，2026-04-24）**：该带已从 PNG 中整体移除，PB / PB百分位 / 股息率 均改由邮件上方表格呈现。下列内容保留作历史参考。
 
 **本期只展示 etf.com 估值中心接口真实返回的三项**（`PB`、`PB百分位`、`股息率`），ROE 和预测 PEG 不显示、不占位、不留 `-`。等宽 3 列：
 
@@ -245,6 +249,7 @@ def classify_level_by_percentile(pct: float) -> tuple[str, str]:
 - 2026-04-24 00:25 Codex：已创建见名知意的 main 备份分支 `backup/main-before-valuation-percentile-20260424`，指向旧 `main` 提交 `0d16f7b`，并已推送到远程。
 - 2026-04-24 00:25 Codex：已将本地 `main` 通过 `git merge --ff-only feat/valuation-percentile-chart` 快进到估值分位图提交；已在 `main` 上执行 `python -m pytest tests/test_monitor_drawdown.py tests/test_valuation_percentile_chart.py -v`，结果 `21 passed, 3 warnings`。下一步推送 `main` 到远程。
 - 2026-04-24 00:29 Codex：收到 GitHub Actions 中文字体告警：新估值图模块固定传入 `Microsoft YaHei` / `Noto Sans CJK SC` / `SimHei`，Actions 中未命中的字体会触发 findfont 并回落到 DejaVu Sans。已按旧图模块 `fix: 修复Actions中文字体缺失告警` 的策略，在 `prototype_valuation_percentile_chart.py` 中改为从 Matplotlib 当前可见字体里选择可用 CJK 字体；`.github/workflows/monitor.yml` 保持直接安装 `fonts-noto-cjk`。按用户要求，本轮不新增/运行测试。
+- 2026-04-24 Codex：用户反馈图片区域上方的 PE/PB 百分位与档位信息与邮件表格重复，已按修订 6 精简 PNG：移除顶部标题+结论带与中部指标格带，只保留 `PE走势` 主图（含 30/中/70 分位值标签）与底部脚注；画布由 `14×7.8` 缩至 `14×5.2`。已同步更新 `tests/test_valuation_percentile_chart.py`：移除涉及档位分类与顶部带文字的断言，新增两条断言验证分位值标签渲染且 `PE百分位 / PB / PB百分位 / 股息率 / 比过去` 不再出现。`python -m pytest tests/test_valuation_percentile_chart.py` 结果 `4 passed`；重跑 `python preview_email_with_charts.py`，6 张 PNG 与邮件预览 HTML 已覆盖生成。
 
 ---
 
@@ -343,6 +348,8 @@ plt.rcParams["axes.unicode_minus"] = False
 
 ### 11.4 顶部带排版（add_axes `[0.04, 0.80, 0.92, 0.17]` 内 `transAxes` 坐标）
 
+> **已废弃（修订 6，2026-04-24）**：顶部带已整体移除，本节坐标表不再生效。
+
 | 元素 | (x, y) | anchor | 文案 |
 |---|---|---|---|
 | 指数名 | (0.00, 0.90) | left, top | `中证红利` |
@@ -357,6 +364,8 @@ plt.rcParams["axes.unicode_minus"] = False
 混排文字用多次 `ax.text` 拼接，不要手算字宽；第二段的橙色百分数单独一次 `ax.text` 再用 `transform=ax.transAxes` 位移 —— 或直接整行用 `matplotlib.text` 的 `usetex=False` + 分多段绘制。
 
 ### 11.5 指标格带（`[0.04, 0.68, 0.92, 0.09]`）
+
+> **已废弃（修订 6，2026-04-24）**：指标格带已整体移除，本节不再生效。
 
 - 3 列等宽，每列中心 x = 0.167、0.500、0.833（`transAxes`）
 - 两条竖分隔线：x=0.333 与 x=0.667，y=0.15→0.85，色 `divider`，lw=1
@@ -507,6 +516,8 @@ plt.close(fig)
 
 ## 12. 邮件容器扩宽 + 顶部带布局回修（架构师补，修订 5，阻塞第 1 轮目检）
 
+> **部分已废弃（修订 6，2026-04-24）**：12.2-C（顶部标题带落位）随顶部带整体移除而失效；12.1 / 12.2-A / 12.2-B / 12.2-D（邮件容器 780px、图片单元格去 padding、PNG 画布保留）仍然生效。12.3 的验收口径中涉及指数名与档位大字的条款已不再适用。
+
 ### 12.1 现象（架构师读 `valuation_percentile_930955.png` 后定位）
 
 - 邮件 HTML 外层写死 `width="640" max-width:640px`（见 `monitor_drawdown.py` 约 1728–1731 行），1400×780 的 PNG 在邮件里被缩到 ~46% 显示，架构师"再放大一点"的诉求无法满足
@@ -567,3 +578,4 @@ Codex 完成 A + B + C 后，按 11.12 节流程重新产出：
 - 2026-04-23 修订 3（同日，架构师补）：追加第 11 节《精细视觉复刻细则》。把 3.x 的方向性描述钉到像素：figure 坐标、色板常量、字号表、顶部/指标格/主图/脚注四区 `add_axes` 布局、分位虚线样式、最新点、保存参数、档位文字表、测试断言、回修清单。Codex 在主流程集成前必须对齐，不满足的逐条回修。
 - 2026-04-23 修订 4（同日，架构师补）：追加 11.12《视觉目检产出要求》。规定 Codex 必须把 6 张目检 PNG 与邮件预览 HTML 真实落盘到 `.test_artifacts/valuation_percentile/`，并将绝对路径登记到 8.1 节，架构师用 `Read` 工具逐张目检。未完成目检前不得自行封板。
 - 2026-04-23 修订 5（同日，架构师补）：第 1 轮目检不通过。追加第 12 节《邮件容器扩宽 + 顶部带布局回修》，解决两个问题：(a) 邮件外层容器 640px → 780px，图片单元格去水平 padding 让 PNG 全宽显示；(b) 顶部标题带当前实现是平铺排版，必须严格按 11.4 表的 (x, y, anchor) 坐标落位，现在指数名与档位大字重叠、"比过去 X% 的时间低"行被盖住。
+- 2026-04-24 修订 6（用户反馈驱动）：PNG 图内的顶部标题+结论带与中部指标格带整体移除（PE 当前值 / PE百分位 / 档位 / PB / PB百分位 / 股息率 / 比过去 X% 的时间低 / 估值窗口脚注等全部不再渲染），原因是这些信息已在邮件上方表格重复展示。画布 `figsize` 由 `(14, 7.8)` 缩至 `(14, 5.2)`，只保留主图带（`PE走势` 标题 + 30/中/70 分位值标签 + 折线 + 三条分位虚线 + 最新点）与底部脚注。章节 3.2 / 3.3 / 11.4 / 11.5 已标记废弃，章节 12.2-C 随之失效，其他 12.x 条款（邮件容器 780px、图片单元格去 padding、PNG 超采样策略）继续生效。配套测试替换为断言分位值标签出现且旧顶部带文案不再出现。
