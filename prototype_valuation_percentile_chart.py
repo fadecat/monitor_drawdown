@@ -5,7 +5,6 @@ from typing import Dict, Optional, Tuple
 
 import matplotlib
 matplotlib.use("Agg")
-import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 from matplotlib import font_manager
 from matplotlib.figure import Figure
@@ -236,8 +235,25 @@ def _draw_main_chart(ax, data: Dict) -> None:
         label.set_fontsize(FONT_SIZES["y_tick"])
         label.set_color(PALETTE["text_muted"])
 
-    ax.set_xticks([dates.iloc[0], dates.iloc[-1]])
-    ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m-%d"))
+    first_date = pd.Timestamp(dates.iloc[0])
+    last_date = pd.Timestamp(dates.iloc[-1])
+    min_gap = pd.Timedelta(days=45)
+    year_ticks = [
+        pd.Timestamp(year=year, month=1, day=1)
+        for year in range(first_date.year + 1, last_date.year + 1)
+    ]
+    year_ticks = [
+        tick for tick in year_ticks
+        if (tick - first_date) >= min_gap and (last_date - tick) >= min_gap
+    ]
+    xtick_values = [first_date, *year_ticks, last_date]
+    xtick_labels = [
+        first_date.strftime("%Y-%m-%d"),
+        *(tick.strftime("%Y") for tick in year_ticks),
+        last_date.strftime("%Y-%m-%d"),
+    ]
+    ax.set_xticks(xtick_values)
+    ax.set_xticklabels(xtick_labels)
     ax.minorticks_off()
     for label in ax.get_xticklabels():
         label.set_fontsize(FONT_SIZES["x_tick"])

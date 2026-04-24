@@ -72,6 +72,25 @@ def test_build_figure_renders_quantile_labels(monkeypatch):
     assert "PE走势" in texts
 
 
+def test_build_figure_xaxis_uses_year_ticks_between_endpoints(monkeypatch):
+    def multi_year_history(index_code, url=""):
+        dates = pd.date_range("2021-03-15", "2026-04-22", freq="W")
+        values = [10.0 + (idx % 25) * 0.1 for idx in range(len(dates))]
+        return pd.DataFrame({"date": dates, "pe": values})
+
+    monkeypatch.setattr(chart.md, "fetch_index_pe_history", multi_year_history)
+    target = _make_target()
+    data = chart._prepare_chart_data(target)
+    assert data is not None
+    fig = chart._build_figure(target, data)
+    chart_ax = fig.axes[0]
+
+    labels = [label.get_text() for label in chart_ax.get_xticklabels()]
+    assert labels[0] == "2021-04-25"
+    assert labels[-1] == "2026-04-19"
+    assert labels[1:-1] == ["2022", "2023", "2024", "2025", "2026"]
+
+
 def test_build_figure_omits_pe_and_pb_percentile_header(monkeypatch):
     fig, _ = _make_figure(monkeypatch)
     texts = {text.get_text() for ax in fig.axes for text in ax.texts}
