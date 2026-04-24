@@ -1676,6 +1676,26 @@ def build_email_html_content(
         f'股债比值 = (1/PE) ÷ 10Y国债'
         f'</div>'
     )
+    info_rows.append(
+        f'<div style="margin-top:6px">'
+        f'<span style="color:{EMAIL_LABEL_COLOR}">配色</span>'
+        f' · PE(TTM) / PB(LF)'
+        f'<span style="display:inline-block;width:8px;height:8px;background:{EMAIL_HIGH_COLOR};'
+        f'border-radius:50%;margin:0 6px 0 10px"></span>≥ {int(EMAIL_PERCENTILE_HIGH_THRESHOLD)}% 偏贵'
+        f'<span style="display:inline-block;width:8px;height:8px;background:{EMAIL_LOW_COLOR};'
+        f'border-radius:50%;margin:0 6px 0 14px"></span>≤ {int(EMAIL_PERCENTILE_LOW_THRESHOLD)}% 偏便宜'
+        f'</div>'
+    )
+    info_rows.append(
+        f'<div style="margin-top:2px">'
+        f'<span style="color:{EMAIL_LABEL_COLOR}">　　</span>'
+        f' · 股息率 / 股债收益差 / 股债比值'
+        f'<span style="display:inline-block;width:8px;height:8px;background:{EMAIL_LOW_COLOR};'
+        f'border-radius:50%;margin:0 6px 0 10px"></span>≥ {int(EMAIL_PERCENTILE_HIGH_THRESHOLD)}% 价值高'
+        f'<span style="display:inline-block;width:8px;height:8px;background:{EMAIL_HIGH_COLOR};'
+        f'border-radius:50%;margin:0 6px 0 14px"></span>≤ {int(EMAIL_PERCENTILE_LOW_THRESHOLD)}% 价值低'
+        f'</div>'
+    )
     global_info = (
         f'<div style="background:{EMAIL_BG_PAGE};border-radius:10px;padding:14px 16px;'
         f'font-size:12.5px;color:{EMAIL_MUTED_COLOR};line-height:1.75">'
