@@ -173,7 +173,9 @@ pip install akshare pandas requests pyyaml tickflow pytest pycryptodome
 
 ```powershell
 python .\test_jisilu_index_patch.py
-JISILU_USERNAME=wobushibaobao JISILU_PASSWORD=yukihan007 python test_new_indices.py
+$env:JISILU_USERNAME = "<your_username>"
+$env:JISILU_PASSWORD = "<your_password>"
+python .\test_new_indices.py
 ```
 
 邮件里的估值配图已从股债性价比图切换为估值分位走势图。
