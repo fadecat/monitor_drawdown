@@ -1541,16 +1541,16 @@ def _render_email_summary_table(triggered_items: List[Dict]) -> str:
 def _render_email_item_percentile_block(item: Dict) -> str:
     th_base = (
         f"padding:8px 10px;background:{EMAIL_BG_TABLE_HEAD};color:{EMAIL_LABEL_COLOR};"
-        f"font-weight:500;font-size:11.5px;letter-spacing:0.3px;"
+        f"font-weight:500;font-size:11.5px;letter-spacing:0.3px;white-space:nowrap;"
         f"border-bottom:1px solid {EMAIL_BORDER_COLOR}"
     )
     td_label_style = (
-        f"padding:10px;border-bottom:1px solid {EMAIL_BORDER_ROW};"
+        f"padding:8px;border-bottom:1px solid {EMAIL_BORDER_ROW};white-space:nowrap;"
         f"color:{EMAIL_TEXT_PRIMARY};font-weight:600"
     )
     td_num_style = (
-        f"padding:10px;text-align:right;border-bottom:1px solid {EMAIL_BORDER_ROW};"
-        f"color:{EMAIL_TEXT_PRIMARY}"
+        f"padding:8px;text-align:right;border-bottom:1px solid {EMAIL_BORDER_ROW};"
+        f"white-space:nowrap;color:{EMAIL_TEXT_PRIMARY}"
     )
 
     rows_html: List[str] = []
@@ -1611,11 +1611,13 @@ def _render_email_item_percentile_block(item: Dict) -> str:
     )
 
     table_html = (
+        '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch">'
         '<table cellpadding="0" cellspacing="0" border="0" width="100%" '
         f'style="border-collapse:collapse;font-size:13px">'
         f'<thead><tr>{headers_html}</tr></thead>'
         f'<tbody>{"".join(rows_html)}</tbody>'
         '</table>'
+        '</div>'
     )
 
     valuation_row = _render_valuation_spread_row(item)
