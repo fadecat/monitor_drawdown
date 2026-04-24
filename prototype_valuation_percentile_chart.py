@@ -174,7 +174,7 @@ def _draw_main_chart(ax, data: Dict) -> None:
         dates,
         pes,
         color=PALETTE["orange"],
-        linewidth=1.8,
+        linewidth=1.2,
         solid_joinstyle="round",
         solid_capstyle="round",
     )
