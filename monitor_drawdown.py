@@ -1629,6 +1629,7 @@ def build_email_html_content(
     valuation_items: Optional[List[Dict]] = None,
     current_time: Optional[datetime] = None,
     chart_paths: Optional[Dict[str, Path]] = None,
+    fx_chart_path: Optional[Path] = None,
 ) -> str:
     now_str = escape((current_time or now_in_beijing()).strftime("%Y-%m-%d %H:%M"))
 
@@ -1704,6 +1705,7 @@ def build_email_html_content(
     )
 
     chart_paths = chart_paths or {}
+    fx_chart_cid = "fx_usd_cny_vs_mid_10y" if fx_chart_path else None
     blocks = []
     for item in all_items:
         code = str(item.get("index_code") or item.get("code") or "").strip()
@@ -1716,7 +1718,19 @@ def build_email_html_content(
         f'<div style="height:1px;background:{EMAIL_BORDER_CARD_SPLIT};line-height:0;font-size:0">&nbsp;</div>'
         f'</td></tr>'
     )
+    fx_chart_row = ""
+    if fx_chart_cid:
+        fx_chart_row = (
+            f'<div style="padding:18px 0 0 0">'
+            f'<img src="cid:{escape(fx_chart_cid)}" alt="美元人民币汇率对比图" '
+            f'style="width:100%;max-width:100%;height:auto;display:block">'
+            f'</div>'
+        )
     card_rows = []
+    if fx_chart_row:
+        card_rows.append(f'<tr><td style="padding:18px 28px 0 28px">{fx_chart_row}</td></tr>')
+        if blocks:
+            card_rows.append(divider)
     for i, block in enumerate(blocks):
         card_rows.append(f'<tr><td style="padding:24px 28px 0 28px">{block}</td></tr>')
         item = all_items[i]
@@ -1773,6 +1787,7 @@ def build_email_message(
     valuation_items: Optional[List[Dict]] = None,
     current_time: Optional[datetime] = None,
     chart_paths: Optional[Dict[str, Path]] = None,
+    fx_chart_path: Optional[Path] = None,
 ) -> EmailMessage:
     message = EmailMessage()
     message["From"] = sender
@@ -1785,6 +1800,7 @@ def build_email_message(
             valuation_items=valuation_items,
             current_time=current_time,
             chart_paths=chart_paths,
+            fx_chart_path=fx_chart_path,
         ),
         subtype="html",
     )
@@ -1802,6 +1818,19 @@ def build_email_message(
                 )
             except Exception as exc:  # noqa: BLE001
                 print(f"[WARN] 邮件图表 {index_code} 挂载失败: {exc}")
+    if fx_chart_path:
+        html_part = message.get_payload()[-1]
+        try:
+            with open(fx_chart_path, "rb") as file:
+                img_bytes = file.read()
+            html_part.add_related(
+                img_bytes,
+                maintype="image",
+                subtype="png",
+                cid="<fx_usd_cny_vs_mid_10y>",
+            )
+        except Exception as exc:  # noqa: BLE001
+            print(f"[WARN] 外汇图表挂载失败: {exc}")
     return message
 
 
@@ -1811,6 +1840,7 @@ def send_email(
     valuation_items: Optional[List[Dict]] = None,
     current_time: Optional[datetime] = None,
     chart_paths: Optional[Dict[str, Path]] = None,
+    fx_chart_path: Optional[Path] = None,
 ) -> None:
     message = build_email_message(
         config["sender"],
@@ -1820,6 +1850,7 @@ def send_email(
         valuation_items=valuation_items,
         current_time=current_time,
         chart_paths=chart_paths,
+        fx_chart_path=fx_chart_path,
     )
     with smtplib.SMTP_SSL(config["smtp_host"], config["smtp_port"], timeout=15) as smtp:
         smtp.login(config["username"], config["password"])
@@ -2013,11 +2044,14 @@ def main() -> None:
             email_config = load_email_config_from_env()
             if email_config:
                 chart_paths: Dict[str, Path] = {}
+                fx_chart_path: Optional[Path] = None
                 try:
                     from pathlib import Path as _Path
+                    from prototype_fx_chart import generate_fx_chart
                     from prototype_valuation_percentile_chart import generate_valuation_percentile_chart
 
                     chart_output_dir = _Path(".email_chart_cache")
+                    fx_chart_path = generate_fx_chart(chart_output_dir)
                     for v_item in (valuation_items or []):
                         target = dict(v_item)
                         target.update(
@@ -2037,6 +2071,7 @@ def main() -> None:
                 except Exception as exc:  # noqa: BLE001
                     print(f"[WARN] 邮件图表批量生成异常，邮件将不带图发送: {exc}")
                     chart_paths = {}
+                    fx_chart_path = None
 
                 send_email(
                     email_config,
@@ -2044,6 +2079,7 @@ def main() -> None:
                     valuation_items=valuation_items,
                     current_time=current_time,
                     chart_paths=chart_paths,
+                    fx_chart_path=fx_chart_path,
                 )
             else:
                 print("[INFO] 未配置 RECEIVER_EMAIL/SMTP_USER/SMTP_PASS，跳过邮件发送。")

@@ -392,7 +392,7 @@ def test_build_email_html_content_uses_table_and_escapes_values():
     assert "追踪指数" not in content
 
 
-def test_build_email_html_content_uses_780px_container_and_full_bleed_chart():
+def test_build_email_html_content_renders_full_bleed_charts_and_fx_chart():
     content = md.build_email_html_content(
         [],
         valuation_items=[
@@ -411,9 +411,11 @@ def test_build_email_html_content_uses_780px_container_and_full_bleed_chart():
         ],
         current_time=md.datetime(2026, 4, 23, 23, 45, tzinfo=md.BEIJING_TZ),
         chart_paths={"930955": md.Path(".test_artifacts/valuation_percentile/valuation_percentile_930955.png")},
+        fx_chart_path=md.Path(".test_artifacts/fx/fx_usd_cny_vs_mid_10y.png"),
     )
 
-    assert 'width="780"' in content
-    assert "max-width:780px" in content
+    assert 'width="100%" style="background:#ffffff;border-radius:12px;overflow:hidden"' in content
     assert 'padding:14px 0 0 0' in content
     assert 'style="width:100%;max-width:100%;height:auto;display:block"' in content
+    assert 'cid:fx_usd_cny_vs_mid_10y' in content
+    assert "美元人民币汇率对比图" in content

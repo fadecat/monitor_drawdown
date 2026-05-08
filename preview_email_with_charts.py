@@ -75,6 +75,13 @@ def generate_chart_paths(valuation_items: List[Dict]) -> Dict[str, Path]:
     return chart_paths
 
 
+def generate_fx_chart_path() -> Optional[Path]:
+    from prototype_fx_chart import generate_fx_chart
+
+    output_dir = Path(".email_chart_cache")
+    return generate_fx_chart(output_dir)
+
+
 def main() -> int:
     try:
         import sys
@@ -93,6 +100,8 @@ def main() -> int:
 
     chart_paths = generate_chart_paths(valuation_items)
     print(f"[INFO] 邮件图生成: {len(chart_paths)}/{len(valuation_items)}")
+    fx_chart_path = generate_fx_chart_path()
+    print(f"[INFO] 外汇图生成: {'OK' if fx_chart_path else 'SKIP'}")
 
     current_time = md.now_in_beijing()
     html = md.build_email_html_content(
@@ -100,9 +109,12 @@ def main() -> int:
         valuation_items=valuation_items,
         current_time=current_time,
         chart_paths=chart_paths,
+        fx_chart_path=fx_chart_path,
     )
     for code, path in chart_paths.items():
         html = html.replace(f"cid:equity_bond_{code}", png_to_data_uri(path))
+    if fx_chart_path is not None:
+        html = html.replace("cid:fx_usd_cny_vs_mid_10y", png_to_data_uri(fx_chart_path))
 
     output_path = Path("email_preview_with_charts.html")
     output_path.write_text(html, encoding="utf-8")
