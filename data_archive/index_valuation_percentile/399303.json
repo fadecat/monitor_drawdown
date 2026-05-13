@@ -1,7 +1,7 @@
 {
   "source": "https://cdn.efunds.com.cn/etf-net/index_valuation_percentile_399303.json",
   "index_code": "399303",
-  "updated_at": "2026-05-13T11:42:58.533939+08:00",
+  "updated_at": "2026-05-13T18:00:53.423836+08:00",
   "records": [
     {
       "pBLf": 2.6501,
@@ -99890,7 +99890,7 @@
       "pSTtm3Y": 93.0844,
       "pSTtm5Y": 95.8644,
       "pSTtm6M": 58.3333,
-      "pSTtmBgn": 77.7853,
+      "pSTtmBgn": 78.1664,
       "pSTtmTY": 32.4324,
       "trdCode": "399303",
       "trdDt": "2026-04-28"
@@ -99924,7 +99924,7 @@
       "pSTtm3Y": 94.0608,
       "pSTtm5Y": 96.4433,
       "pSTtm6M": 64.1667,
-      "pSTtmBgn": 77.7853,
+      "pSTtmBgn": 78.1664,
       "pSTtmTY": 42.6667,
       "trdCode": "399303",
       "trdDt": "2026-04-29"
@@ -99958,7 +99958,7 @@
       "pSTtm3Y": 94.3448,
       "pSTtm5Y": 96.6088,
       "pSTtm6M": 65.5462,
-      "pSTtmBgn": 77.7853,
+      "pSTtmBgn": 78.1664,
       "pSTtmTY": 46.0526,
       "trdCode": "399303",
       "trdDt": "2026-04-30"
@@ -99992,7 +99992,7 @@
       "pSTtm3Y": 98.6188,
       "pSTtm5Y": 99.1729,
       "pSTtm6M": 91.3793,
-      "pSTtmBgn": 77.7853,
+      "pSTtmBgn": 78.1664,
       "pSTtmTY": 87.013,
       "trdCode": "399303",
       "trdDt": "2026-05-06"
@@ -100026,7 +100026,7 @@
       "pSTtm3Y": 99.8621,
       "pSTtm5Y": 99.9173,
       "pSTtm6M": 99.1379,
-      "pSTtmBgn": 77.7853,
+      "pSTtmBgn": 78.1664,
       "pSTtmTY": 98.7179,
       "trdCode": "399303",
       "trdDt": "2026-05-07"
@@ -100060,7 +100060,7 @@
       "pSTtm3Y": 100.0,
       "pSTtm5Y": 100.0,
       "pSTtm6M": 100.0,
-      "pSTtmBgn": 77.7853,
+      "pSTtmBgn": 78.1664,
       "pSTtmTY": 100.0,
       "trdCode": "399303",
       "trdDt": "2026-05-08"
@@ -100094,7 +100094,7 @@
       "pSTtm3Y": 100.0,
       "pSTtm5Y": 100.0,
       "pSTtm6M": 100.0,
-      "pSTtmBgn": 77.7853,
+      "pSTtmBgn": 78.1664,
       "pSTtmTY": 100.0,
       "trdCode": "399303",
       "trdDt": "2026-05-11"
@@ -100128,7 +100128,7 @@
       "pSTtm3Y": 99.8617,
       "pSTtm5Y": 99.9173,
       "pSTtm6M": 99.1379,
-      "pSTtmBgn": 77.7853,
+      "pSTtmBgn": 78.1664,
       "pSTtmTY": 98.7654,
       "trdCode": "399303",
       "trdDt": "2026-05-12"
