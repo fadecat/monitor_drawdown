@@ -169,6 +169,25 @@ python .\preview_webhook_message.py --simulate-missing-today
 python -m pip install --upgrade pip
 pip install akshare pandas requests pyyaml tickflow pytest pycryptodome
 ```
+
+## 历史数据归档
+
+仓库现在包含一个独立的历史数据归档脚本 [`refresh_data_archive.py`](/D:/gitub_codes/monitor_drawdown/refresh_data_archive.py:1) 和工作流 [refresh_data_archive.yml](/D:/gitub_codes/monitor_drawdown/.github/workflows/refresh_data_archive.yml:1)。
+
+归档范围来自 `config.yaml` 当前配置的指数目标，归档输出写入 `data_archive/`，并且只有归档文件发生变化时才会自动提交。
+
+当前归档的数据包括：
+
+- 指数 EOD 历史
+- 指数股息率历史
+- 指数估值分位历史
+- 中国 10 年国债历史
+
+本地运行：
+
+```powershell
+python .\refresh_data_archive.py
+```
 只测试“历史数据 + 集思录当天价格 + 最大回撤”时，可直接运行：
 
 ```powershell

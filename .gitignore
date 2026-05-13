@@ -21,6 +21,10 @@ datacache/
 .mypy_cache/
 .ruff_cache/
 
+# Archived repository data
+!data_archive/
+!data_archive/**
+
 # Logs
 *.log
 *_output.txt
