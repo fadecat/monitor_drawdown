@@ -1,3 +1,4 @@
+import json
 import os
 import smtplib
 import time
@@ -39,6 +40,7 @@ DEFAULT_EMAIL_SUBJECT = "核心标的监控告警"
 
 
 BEIJING_TZ = timezone(timedelta(hours=8))
+ARCHIVE_ROOT = Path(__file__).resolve().parent / "data_archive"
 
 def now_in_beijing() -> datetime:
     return datetime.now(BEIJING_TZ)
@@ -247,6 +249,90 @@ def parse_optional_date(value: object) -> Optional[pd.Timestamp]:
     if pd.isna(parsed):
         return None
     return parsed.normalize()
+
+
+def load_archive_payload(path: Path) -> Dict[str, Any]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError(f"archive payload must be an object: {path}")
+    records = payload.get("records")
+    if not isinstance(records, list):
+        raise ValueError(f"archive payload missing records list: {path}")
+    return payload
+
+
+def load_archive_records(
+    dataset_name: str,
+    index_code: Optional[str] = None,
+    archive_root: Path = ARCHIVE_ROOT,
+) -> List[Dict]:
+    if dataset_name == "bond_10y":
+        path = archive_root / dataset_name / "china_10y.json"
+    else:
+        resolved_index_code = str(index_code or "").strip()
+        if not resolved_index_code:
+            raise ValueError(f"dataset {dataset_name} requires index_code")
+        path = archive_root / dataset_name / f"{resolved_index_code}.json"
+    payload = load_archive_payload(path)
+    return [record for record in payload["records"] if isinstance(record, dict)]
+
+
+def is_archive_fresh(
+    latest_date: object,
+    max_age_days: int = 7,
+    now: Optional[datetime] = None,
+) -> bool:
+    parsed = parse_optional_date(latest_date)
+    if parsed is None:
+        return False
+    current_date = (now or now_in_beijing()).astimezone(BEIJING_TZ).date()
+    return (current_date - parsed.date()).days <= max_age_days
+
+
+def _get_latest_record_date(records: List[Dict], date_fields: Tuple[str, ...]) -> Optional[str]:
+    latest: Optional[pd.Timestamp] = None
+    for record in records:
+        for field in date_fields:
+            parsed = parse_optional_date(record.get(field))
+            if parsed is not None and (latest is None or parsed > latest):
+                latest = parsed
+    return latest.strftime("%Y-%m-%d") if latest is not None else None
+
+
+def _build_archive_meta(data_source: str, archive_latest_date: Optional[str]) -> Dict[str, Optional[str]]:
+    return {
+        "data_source": data_source,
+        "archive_latest_date": archive_latest_date if data_source == "archive" else None,
+    }
+
+
+def _combine_archive_meta(*metas: Optional[Dict[str, Optional[str]]]) -> Dict[str, Optional[str]]:
+    archive_dates = [
+        str(meta.get("archive_latest_date") or "").strip()
+        for meta in metas
+        if isinstance(meta, dict) and str(meta.get("data_source") or "").strip() == "archive"
+    ]
+    if archive_dates:
+        return {"data_source": "archive", "archive_latest_date": max(archive_dates)}
+    return {"data_source": "live", "archive_latest_date": None}
+
+
+def _archive_suffix(data_source: object, archive_latest_date: object) -> str:
+    if str(data_source or "").strip() != "archive":
+        return ""
+    latest = str(archive_latest_date or "").strip()
+    return f" (archive, {latest})" if latest else " (archive)"
+
+
+def _archive_html_suffix(data_source: object, archive_latest_date: object) -> str:
+    if str(data_source or "").strip() != "archive":
+        return ""
+    latest = str(archive_latest_date or "").strip()
+    label = f"(archive, {latest})" if latest else "(archive)"
+    return (
+        f'<span style="font-size:11px;color:{EMAIL_LABEL_COLOR};'
+        f'font-weight:500;margin-left:6px">{escape(label)}</span>'
+    )
 
 
 def build_tickflow_client() -> Optional["TickFlow"]:
@@ -472,6 +558,30 @@ def fetch_index_dividend_yield(index_code: str, url: str = "") -> Dict:
     return result
 
 
+def fetch_index_dividend_yield_with_archive_fallback(
+    index_code: str,
+    url: str = "",
+    archive_root: Path = ARCHIVE_ROOT,
+    now: Optional[datetime] = None,
+) -> Dict:
+    try:
+        result = fetch_index_dividend_yield(index_code, url=url)
+        result["data_source"] = "live"
+        result["archive_latest_date"] = None
+        return result
+    except Exception as live_exc:  # noqa: BLE001
+        records = load_archive_records("index_dividend_ratio", index_code=index_code, archive_root=archive_root)
+        latest_date = _get_latest_record_date(records, ("trdDt", "date"))
+        if not latest_date or not is_archive_fresh(latest_date, now=now):
+            raise live_exc
+        result = parse_index_dividend_yield_rows(records, fallback_index_code=index_code)
+        result["index_dividend_yield_source"] = str(archive_root / "index_dividend_ratio" / f"{index_code}.json")
+        result["data_source"] = "archive"
+        result["archive_latest_date"] = latest_date
+        print(f"[WARN] 指数股息率实时接口失败，已回退归档: {index_code} -> {live_exc}")
+        return result
+
+
 def parse_index_eod_price_rows(rows: object) -> pd.DataFrame:
     if not isinstance(rows, list):
         raise ValueError("指数 EOD 价格接口返回格式异常")
@@ -600,6 +710,32 @@ def fetch_index_valuation_percentile(index_code: str, url: str = "") -> Dict:
     return result
 
 
+def fetch_index_valuation_percentile_with_archive_fallback(
+    index_code: str,
+    url: str = "",
+    archive_root: Path = ARCHIVE_ROOT,
+    now: Optional[datetime] = None,
+) -> Dict:
+    try:
+        result = fetch_index_valuation_percentile(index_code, url=url)
+        result["data_source"] = "live"
+        result["archive_latest_date"] = None
+        return result
+    except Exception as live_exc:  # noqa: BLE001
+        records = load_archive_records("index_valuation_percentile", index_code=index_code, archive_root=archive_root)
+        latest_date = _get_latest_record_date(records, ("trdDt", "date"))
+        if not latest_date or not is_archive_fresh(latest_date, now=now):
+            raise live_exc
+        result = parse_index_valuation_percentile_rows(records, fallback_index_code=index_code)
+        result["index_valuation_percentile_source"] = str(
+            archive_root / "index_valuation_percentile" / f"{index_code}.json"
+        )
+        result["data_source"] = "archive"
+        result["archive_latest_date"] = latest_date
+        print(f"[WARN] 指数估值分位实时接口失败，已回退归档: {index_code} -> {live_exc}")
+        return result
+
+
 def resolve_target_index_code(target: Dict) -> str:
     target_type = str(target.get("type", "")).strip().lower()
     index_code = str(target.get("tracking_index_code") or target.get("index_code") or "").strip()
@@ -640,6 +776,40 @@ def fetch_cn_10y_bond_history(lookback_years: int = 11) -> pd.DataFrame:
     return result.dropna().sort_values("date").reset_index(drop=True)
 
 
+def fetch_cn_10y_bond_history_with_archive_fallback(
+    lookback_years: int = 11,
+    archive_root: Path = ARCHIVE_ROOT,
+    now: Optional[datetime] = None,
+) -> Tuple[pd.DataFrame, Dict[str, Optional[str]]]:
+    try:
+        live_df = (
+            fetch_cn_10y_bond_history()
+            if lookback_years == 11
+            else fetch_cn_10y_bond_history(lookback_years=lookback_years)
+        )
+        return live_df, {
+            "data_source": "live",
+            "archive_latest_date": None,
+        }
+    except Exception as live_exc:  # noqa: BLE001
+        records = load_archive_records("bond_10y", archive_root=archive_root)
+        latest_date = _get_latest_record_date(records, ("日期", "date"))
+        if not latest_date or not is_archive_fresh(latest_date, now=now):
+            raise live_exc
+        df = pd.DataFrame(records)
+        if _CN_10Y_BOND_YIELD_COL not in df.columns or "日期" not in df.columns:
+            raise live_exc
+        result = df[["日期", _CN_10Y_BOND_YIELD_COL]].copy()
+        result.columns = ["date", "yield_pct"]
+        result["date"] = pd.to_datetime(result["date"], errors="coerce")
+        result["yield_pct"] = pd.to_numeric(result["yield_pct"], errors="coerce")
+        result = result.dropna().sort_values("date").reset_index(drop=True)
+        if result.empty:
+            raise live_exc
+        print(f"[WARN] 10年期国债历史实时接口失败，已回退归档 -> {live_exc}")
+        return result, {"data_source": "archive", "archive_latest_date": latest_date}
+
+
 def fetch_index_pe_history(index_code: str, url: str = "") -> pd.DataFrame:
     url = url or DEFAULT_INDEX_VALUATION_PERCENTILE_URL_TEMPLATE.format(index_code=index_code)
     resp = run_with_retry("index_pe_history", lambda: requests.get(url, timeout=15))
@@ -653,6 +823,32 @@ def fetch_index_pe_history(index_code: str, url: str = "") -> pd.DataFrame:
     if not records:
         return pd.DataFrame(columns=["date", "pe"])
     return pd.DataFrame(records).sort_values("date").reset_index(drop=True)
+
+
+def fetch_index_pe_history_with_archive_fallback(
+    index_code: str,
+    url: str = "",
+    archive_root: Path = ARCHIVE_ROOT,
+    now: Optional[datetime] = None,
+) -> Tuple[pd.DataFrame, Dict[str, Optional[str]]]:
+    try:
+        return fetch_index_pe_history(index_code, url=url), {"data_source": "live", "archive_latest_date": None}
+    except Exception as live_exc:  # noqa: BLE001
+        records = load_archive_records("index_valuation_percentile", index_code=index_code, archive_root=archive_root)
+        latest_date = _get_latest_record_date(records, ("trdDt", "date"))
+        if not latest_date or not is_archive_fresh(latest_date, now=now):
+            raise live_exc
+        pe_records = []
+        for row in records:
+            trade_date = parse_optional_date(row.get("trdDt"))
+            pe = parse_float(row.get("pETtm"))
+            if trade_date is not None and pe is not None and pe > 0:
+                pe_records.append({"date": trade_date, "pe": pe})
+        pe_df = pd.DataFrame(pe_records).sort_values("date").reset_index(drop=True) if pe_records else pd.DataFrame(columns=["date", "pe"])
+        if pe_df.empty:
+            raise live_exc
+        print(f"[WARN] 指数PE历史实时接口失败，已回退归档: {index_code} -> {live_exc}")
+        return pe_df, {"data_source": "archive", "archive_latest_date": latest_date}
 
 
 def compute_equity_bond_spread_percentiles(
@@ -711,15 +907,33 @@ def attach_equity_bond_spread(item: Dict, bond_history: pd.DataFrame) -> None:
     if not index_code and not valuation_url:
         return
     try:
-        pe_df = fetch_index_pe_history(index_code, url=valuation_url)
+        pe_df, pe_meta = fetch_index_pe_history_with_archive_fallback(index_code, url=valuation_url)
         spread = compute_equity_bond_spread_percentiles(pe_df, bond_history)
         if spread:
             item["equity_bond_spread"] = spread
+            combined_meta = _combine_archive_meta(
+                pe_meta,
+                {
+                    "data_source": item.get("cn_10y_bond_yield_data_source"),
+                    "archive_latest_date": item.get("cn_10y_bond_yield_archive_latest_date"),
+                },
+            )
+            item.update(
+                {
+                    "equity_bond_spread_data_source": combined_meta.get("data_source"),
+                    "equity_bond_spread_archive_latest_date": combined_meta.get("archive_latest_date"),
+                }
+            )
     except Exception as exc:  # noqa: BLE001
         print(f"[WARN] {item.get('name', index_code)} 股债收益差分位计算失败: {exc}")
 
 
-def attach_equity_bond_ratio(item: Dict, bond_yield: float) -> None:
+def attach_equity_bond_ratio(
+    item: Dict,
+    bond_yield: float,
+    data_source: str = "live",
+    archive_latest_date: Optional[str] = None,
+) -> None:
     pe_metric = get_index_valuation_metric(item, "PE(TTM)")
     if not pe_metric:
         return
@@ -728,6 +942,8 @@ def attach_equity_bond_ratio(item: Dict, bond_yield: float) -> None:
         return
     item["equity_bond_ratio"] = round((1.0 / pe_current) * 100.0 - bond_yield, 4)
     item["cn_10y_bond_yield"] = bond_yield
+    item["cn_10y_bond_yield_data_source"] = data_source
+    item["cn_10y_bond_yield_archive_latest_date"] = archive_latest_date if data_source == "archive" else None
 
 
 def fetch_target_index_metrics(target: Dict) -> Optional[Dict]:
@@ -746,11 +962,17 @@ def fetch_target_index_metrics(target: Dict) -> Optional[Dict]:
 
     dividend_url = dividend_url or str(result.get("index_dividend_yield_url") or "").strip()
     if index_code or dividend_url:
-        result.update(fetch_index_dividend_yield(index_code, url=dividend_url))
+        dividend_result = fetch_index_dividend_yield_with_archive_fallback(index_code, url=dividend_url)
+        result.update(dividend_result)
+        result["index_dividend_yield_data_source"] = dividend_result.get("data_source")
+        result["index_dividend_yield_archive_latest_date"] = dividend_result.get("archive_latest_date")
 
     valuation_url = valuation_url or str(result.get("index_valuation_percentile_url") or "").strip()
     if index_code or valuation_url:
-        result.update(fetch_index_valuation_percentile(index_code, url=valuation_url))
+        valuation_result = fetch_index_valuation_percentile_with_archive_fallback(index_code, url=valuation_url)
+        result.update(valuation_result)
+        result["index_valuation_data_source"] = valuation_result.get("data_source")
+        result["index_valuation_archive_latest_date"] = valuation_result.get("archive_latest_date")
 
     return result or None
 
@@ -1268,7 +1490,11 @@ def build_email_plain_text_content(
         if item.get("index_dividend_yield") is not None:
             dy = format_optional_percent(item.get("index_dividend_yield"), decimals=2, strip=False)
             dy_date = str(item.get("index_dividend_yield_date") or "").strip()
-            lines.append(f"  股息率: {dy}" + (f" ({dy_date})" if dy_date else ""))
+            dy_suffix = _archive_suffix(
+                item.get("index_dividend_yield_data_source"),
+                item.get("index_dividend_yield_archive_latest_date"),
+            )
+            lines.append(f"  股息率: {dy}" + (f" ({dy_date})" if dy_date else "") + dy_suffix)
 
         metrics_parts: List[str] = []
         for metric_name in ("PE(TTM)", "PB(LF)"):
@@ -1278,7 +1504,11 @@ def build_email_plain_text_content(
                 metrics_parts.append(f"{metric_name} {current}")
         if metrics_parts:
             val_date = str(item.get("index_valuation_date") or "").strip()
-            lines.append(f"  估值{f' ({val_date})' if val_date else ''}: " + ", ".join(metrics_parts))
+            valuation_suffix = _archive_suffix(
+                item.get("index_valuation_data_source"),
+                item.get("index_valuation_archive_latest_date"),
+            )
+            lines.append(f"  估值{f' ({val_date})' if val_date else ''}: " + ", ".join(metrics_parts) + valuation_suffix)
 
         ebr_line = _format_equity_bond_spread_text(item)
         if ebr_line:
@@ -1315,7 +1545,11 @@ def _format_equity_bond_spread_text(item: Dict) -> str:
         if avg_5y is not None:
             direction = "高于" if ebr >= avg_5y else "低于"
             context += f"，{direction}5年均值 {avg_5y:+.2f}%"
-    lines = [f"股债收益差: {ebr:+.2f}%{formula}{context}"]
+    spread_suffix = _archive_suffix(
+        item.get("equity_bond_spread_data_source") or item.get("cn_10y_bond_yield_data_source"),
+        item.get("equity_bond_spread_archive_latest_date") or item.get("cn_10y_bond_yield_archive_latest_date"),
+    )
+    lines = [f"股债收益差: {ebr:+.2f}%{formula}{context}{spread_suffix}"]
 
     ratio_cur = parse_float(spread_data.get("ratio_current"))
     if ratio_cur is not None:
@@ -1329,7 +1563,7 @@ def _format_equity_bond_spread_text(item: Dict) -> str:
             if ratio_avg is not None:
                 direction = "高于" if ratio_cur >= ratio_avg else "低于"
                 ratio_context += f"，{direction}5年均值 {ratio_avg:.2f}x"
-        lines.append(f"股债比值法: {ratio_cur:.2f}x{ratio_formula}{ratio_context}")
+        lines.append(f"股债比值法: {ratio_cur:.2f}x{ratio_formula}{ratio_context}{spread_suffix}")
     return "\n".join(lines)
 
 
@@ -1397,6 +1631,7 @@ def _render_valuation_spread_row(item: Dict) -> str:
         dy_main = (
             f'<span style="font-size:22px;font-weight:700;color:{dy_color}">'
             f'{escape(f"{dy:.2f}%")}</span>'
+            f'{_archive_html_suffix(item.get("index_dividend_yield_data_source"), item.get("index_dividend_yield_archive_latest_date"))}'
         )
         specs.append(("股息率", dy_main, dy_pct, dy_avg,
                       lambda v: escape(f"{v:.2f}%"), dy_pct_color))
@@ -1411,6 +1646,7 @@ def _render_valuation_spread_row(item: Dict) -> str:
         spread_main = (
             f'<span style="font-size:22px;font-weight:700;color:{spread_color}">'
             f'{escape(_signed_percent(ebr))}</span>'
+            f'{_archive_html_suffix(item.get("equity_bond_spread_data_source") or item.get("cn_10y_bond_yield_data_source"), item.get("equity_bond_spread_archive_latest_date") or item.get("cn_10y_bond_yield_archive_latest_date"))}'
         )
         specs.append(("股债收益差", spread_main, spread_pct, spread_avg,
                       lambda v: escape(_signed_percent(v)), spread_pct_color))
@@ -1569,6 +1805,11 @@ def _render_email_item_percentile_block(item: Dict) -> str:
         )
         percentiles = metric.get("percentiles") if isinstance(metric.get("percentiles"), dict) else {}
         current_cell = format_optional_number(metric.get("current"), decimals=2, strip=False)
+        if metric_name == "PE(TTM)":
+            current_cell += _archive_suffix(
+                item.get("index_valuation_data_source"),
+                item.get("index_valuation_archive_latest_date"),
+            )
         cells = [
             f'<td align="left" style="{label_style}">{escape(metric_name)}</td>',
             f'<td align="right" style="{num_style}">{escape(current_cell)}</td>',
@@ -1891,11 +2132,12 @@ def main() -> None:
 
     cn_10y_yield: Optional[float] = None
     cn_10y_bond_history: Optional[pd.DataFrame] = None
+    cn_10y_bond_meta: Dict[str, Optional[str]] = {"data_source": "live", "archive_latest_date": None}
     try:
         cn_10y_yield = fetch_cn_10y_bond_yield()
         if cn_10y_yield is not None:
             print(f"[INFO] 10年期国债收益率: {cn_10y_yield:.4f}%")
-        cn_10y_bond_history = fetch_cn_10y_bond_history()
+        cn_10y_bond_history, cn_10y_bond_meta = fetch_cn_10y_bond_history_with_archive_fallback()
         print(f"[INFO] 10年期国债历史数据: {len(cn_10y_bond_history)} 条")
     except Exception as exc:  # noqa: BLE001
         print(f"[WARN] 10年期国债数据获取失败，股债收益差将不显示: {exc}")
@@ -1934,6 +2176,14 @@ def main() -> None:
                     valuation_item.update(metrics)
                     if cn_10y_yield is not None:
                         attach_equity_bond_ratio(valuation_item, cn_10y_yield)
+                        valuation_item["cn_10y_bond_yield_data_source"] = str(
+                            cn_10y_bond_meta.get("data_source") or "live"
+                        )
+                        valuation_item["cn_10y_bond_yield_archive_latest_date"] = (
+                            cn_10y_bond_meta.get("archive_latest_date")
+                            if valuation_item["cn_10y_bond_yield_data_source"] == "archive"
+                            else None
+                        )
                     if cn_10y_bond_history is not None:
                         attach_equity_bond_spread(valuation_item, cn_10y_bond_history)
                     valuation_items.append(valuation_item)
@@ -2023,6 +2273,14 @@ def main() -> None:
                     triggered_item.update(dividend_yield_info)
                 if cn_10y_yield is not None:
                     attach_equity_bond_ratio(triggered_item, cn_10y_yield)
+                    triggered_item["cn_10y_bond_yield_data_source"] = str(
+                        cn_10y_bond_meta.get("data_source") or "live"
+                    )
+                    triggered_item["cn_10y_bond_yield_archive_latest_date"] = (
+                        cn_10y_bond_meta.get("archive_latest_date")
+                        if triggered_item["cn_10y_bond_yield_data_source"] == "archive"
+                        else None
+                    )
                 if cn_10y_bond_history is not None:
                     attach_equity_bond_spread(triggered_item, cn_10y_bond_history)
                 triggered.append(triggered_item)

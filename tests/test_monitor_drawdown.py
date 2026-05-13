@@ -1,8 +1,10 @@
+import json
 from pathlib import Path
 import shutil
 import uuid
 
 import pandas as pd
+import pytest
 
 import monitor_drawdown as md
 import prototype_valuation_percentile_chart as valuation_chart
@@ -546,3 +548,223 @@ targets:
         assert captured["chart_paths"] == {"000300": workspace_tmp / "000300.png"}
     finally:
         shutil.rmtree(workspace_tmp, ignore_errors=True)
+
+
+def test_load_archive_records_reads_index_archive(tmp_path):
+    archive_root = tmp_path / "data_archive"
+    payload = {
+        "source": "archive",
+        "index_code": "931052",
+        "updated_at": "2026-05-13T12:00:00+08:00",
+        "records": [{"trdDt": "2026-05-12", "pETtm": 10.84}],
+    }
+    path = archive_root / "index_valuation_percentile" / "931052.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+
+    records = md.load_archive_records(
+        "index_valuation_percentile",
+        "931052",
+        archive_root=archive_root,
+    )
+
+    assert records == [{"trdDt": "2026-05-12", "pETtm": 10.84}]
+
+
+def test_is_archive_fresh_rejects_records_older_than_seven_days():
+    now = md.datetime(2026, 5, 13, 10, 0, tzinfo=md.BEIJING_TZ)
+
+    assert md.is_archive_fresh("2026-05-06", now=now) is True
+    assert md.is_archive_fresh("2026-05-05", now=now) is False
+
+
+def test_fetch_index_dividend_yield_with_archive_fallback_prefers_live(monkeypatch, tmp_path):
+    archive_reads = []
+
+    def fake_load_archive_records(dataset_name, index_code=None, archive_root=None):
+        archive_reads.append((dataset_name, index_code, archive_root))
+        return []
+
+    monkeypatch.setattr(
+        md,
+        "fetch_index_dividend_yield",
+        lambda index_code, url="": {
+            "index_code": index_code,
+            "index_dividend_yield": 4.23,
+            "index_dividend_yield_date": "2026-05-13",
+        },
+    )
+    monkeypatch.setattr(md, "load_archive_records", fake_load_archive_records)
+
+    result = md.fetch_index_dividend_yield_with_archive_fallback(
+        "931052",
+        archive_root=tmp_path / "data_archive",
+    )
+
+    assert result["data_source"] == "live"
+    assert result["archive_latest_date"] is None
+    assert archive_reads == []
+
+
+def test_fetch_index_dividend_yield_with_archive_fallback_uses_fresh_archive(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        md,
+        "fetch_index_dividend_yield",
+        lambda index_code, url="": (_ for _ in ()).throw(RuntimeError("live failed")),
+    )
+    archive_root = tmp_path / "data_archive"
+    path = archive_root / "index_dividend_ratio" / "931052.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "source": "archive",
+                "index_code": "931052",
+                "updated_at": "2026-05-13T12:00:00+08:00",
+                "records": [{"trdCode": "931052", "trdDt": "2026-05-12", "dividendYield": 4.23}],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    result = md.fetch_index_dividend_yield_with_archive_fallback(
+        "931052",
+        archive_root=archive_root,
+        now=md.datetime(2026, 5, 13, 15, 0, tzinfo=md.BEIJING_TZ),
+    )
+
+    assert result["index_dividend_yield"] == 4.23
+    assert result["data_source"] == "archive"
+    assert result["archive_latest_date"] == "2026-05-12"
+
+
+def test_fetch_index_dividend_yield_with_archive_fallback_rejects_stale_archive(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        md,
+        "fetch_index_dividend_yield",
+        lambda index_code, url="": (_ for _ in ()).throw(RuntimeError("live failed")),
+    )
+    archive_root = tmp_path / "data_archive"
+    path = archive_root / "index_dividend_ratio" / "931052.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "source": "archive",
+                "index_code": "931052",
+                "updated_at": "2026-05-13T12:00:00+08:00",
+                "records": [{"trdCode": "931052", "trdDt": "2026-05-04", "dividendYield": 4.23}],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RuntimeError, match="live failed"):
+        md.fetch_index_dividend_yield_with_archive_fallback(
+            "931052",
+            archive_root=archive_root,
+            now=md.datetime(2026, 5, 13, 15, 0, tzinfo=md.BEIJING_TZ),
+        )
+
+
+def test_fetch_index_pe_history_with_archive_fallback_reconstructs_pe_series(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        md,
+        "fetch_index_pe_history",
+        lambda index_code, url="": (_ for _ in ()).throw(RuntimeError("live failed")),
+    )
+    archive_root = tmp_path / "data_archive"
+    path = archive_root / "index_valuation_percentile" / "931052.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "source": "archive",
+                "index_code": "931052",
+                "updated_at": "2026-05-13T12:00:00+08:00",
+                "records": [
+                    {"trdDt": "2026-05-11", "pETtm": 9.11},
+                    {"trdDt": "2026-05-12", "pETtm": 10.84},
+                    {"trdDt": "2026-05-13", "pETtm": None},
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    pe_df, meta = md.fetch_index_pe_history_with_archive_fallback(
+        "931052",
+        archive_root=archive_root,
+        now=md.datetime(2026, 5, 13, 15, 0, tzinfo=md.BEIJING_TZ),
+    )
+
+    assert pe_df["date"].dt.strftime("%Y-%m-%d").tolist() == ["2026-05-11", "2026-05-12"]
+    assert pe_df["pe"].tolist() == [9.11, 10.84]
+    assert meta == {"data_source": "archive", "archive_latest_date": "2026-05-13"}
+
+
+def test_build_email_plain_text_content_marks_archive_metrics():
+    content = md.build_email_plain_text_content(
+        [],
+        valuation_items=[
+            {
+                "name": "中证红利低波动100指数",
+                "index_code": "931052",
+                "index_dividend_yield": 4.23,
+                "index_dividend_yield_date": "2026-05-12",
+                "index_dividend_yield_data_source": "archive",
+                "index_dividend_yield_archive_latest_date": "2026-05-12",
+                "index_valuation_date": "2026-05-12",
+                "index_valuation_data_source": "archive",
+                "index_valuation_archive_latest_date": "2026-05-12",
+                "index_valuation_metrics": {
+                    "PE(TTM)": {"current": 10.84, "percentiles": {"1Y": 98.2}},
+                    "PB(LF)": {"current": 1.40, "percentiles": {"1Y": 75.4}},
+                },
+                "cn_10y_bond_yield": 1.73,
+                "cn_10y_bond_yield_data_source": "archive",
+                "cn_10y_bond_yield_archive_latest_date": "2026-05-12",
+                "equity_bond_ratio": 7.49,
+            }
+        ],
+        current_time=md.datetime(2026, 5, 13, 15, 0, tzinfo=md.BEIJING_TZ),
+    )
+
+    assert "股息率: 4.23% (2026-05-12) (archive, 2026-05-12)" in content
+    assert "估值 (2026-05-12): PE(TTM) 10.84, PB(LF) 1.40 (archive, 2026-05-12)" in content
+    assert "股债收益差: +7.49% (1/PE − 1.73% 10Y债) (archive, 2026-05-12)" in content
+
+
+def test_build_email_html_content_marks_archive_metrics():
+    content = md.build_email_html_content(
+        [],
+        valuation_items=[
+            {
+                "name": "中证红利低波动100指数",
+                "index_code": "931052",
+                "index_name": "中证红利低波动100指数",
+                "index_dividend_yield": 4.23,
+                "index_dividend_yield_data_source": "archive",
+                "index_dividend_yield_archive_latest_date": "2026-05-12",
+                "index_valuation_date": "2026-05-12",
+                "index_valuation_data_source": "archive",
+                "index_valuation_archive_latest_date": "2026-05-12",
+                "index_valuation_metrics": {
+                    "PE(TTM)": {"current": 10.84, "percentiles": {"1Y": 98.2, "3Y": 88.1, "5Y": 91.2}},
+                    "PB(LF)": {"current": 1.40, "percentiles": {"1Y": 75.4, "3Y": 66.2, "5Y": 70.1}},
+                },
+                "cn_10y_bond_yield": 1.73,
+                "cn_10y_bond_yield_data_source": "archive",
+                "cn_10y_bond_yield_archive_latest_date": "2026-05-12",
+                "equity_bond_ratio": 7.49,
+            }
+        ],
+        current_time=md.datetime(2026, 5, 13, 15, 0, tzinfo=md.BEIJING_TZ),
+    )
+
+    assert "archive, 2026-05-12" in content
+    assert "4.23%" in content
+    assert "10.84" in content
