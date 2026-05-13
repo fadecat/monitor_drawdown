@@ -642,7 +642,7 @@ def fetch_cn_10y_bond_history(lookback_years: int = 11) -> pd.DataFrame:
 
 def fetch_index_pe_history(index_code: str, url: str = "") -> pd.DataFrame:
     url = url or DEFAULT_INDEX_VALUATION_PERCENTILE_URL_TEMPLATE.format(index_code=index_code)
-    resp = requests.get(url, timeout=15)
+    resp = run_with_retry("index_pe_history", lambda: requests.get(url, timeout=15))
     resp.raise_for_status()
     records = []
     for row in resp.json():
@@ -2063,11 +2063,17 @@ def main() -> None:
                                 "index_dividend_yield_url": v_item.get("index_dividend_yield_source", ""),
                             }
                         )
-                        png_path = generate_valuation_percentile_chart(target, chart_output_dir)
-                        if png_path is not None:
-                            code = str(v_item.get("index_code") or v_item.get("code") or "").strip()
-                            if code:
+                        code = str(v_item.get("index_code") or v_item.get("code") or "").strip()
+                        try:
+                            png_path = generate_valuation_percentile_chart(target, chart_output_dir)
+                            if png_path is not None and code:
                                 chart_paths[code] = png_path
+                        except Exception as exc:  # noqa: BLE001
+                            print(
+                                "[WARN] 估值图生成失败: "
+                                f"{v_item.get('name', code)} ({code}), "
+                                f"url={target.get('index_valuation_percentile_url', '')} -> {exc}"
+                            )
                 except Exception as exc:  # noqa: BLE001
                     print(f"[WARN] 邮件图表批量生成异常，邮件将不带图发送: {exc}")
                     chart_paths = {}

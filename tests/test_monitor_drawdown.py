@@ -1,6 +1,11 @@
+from pathlib import Path
+import shutil
+import uuid
+
 import pandas as pd
 
 import monitor_drawdown as md
+import prototype_valuation_percentile_chart as valuation_chart
 
 
 class FakeKlines:
@@ -419,3 +424,125 @@ def test_build_email_html_content_renders_full_bleed_charts_and_fx_chart():
     assert 'style="width:100%;max-width:100%;height:auto;display:block"' in content
     assert 'cid:fx_usd_cny_vs_mid_10y' in content
     assert "美元人民币汇率对比图" in content
+
+
+def test_fetch_index_pe_history_retries_on_connection_abort(monkeypatch):
+    payload = [
+        {"trdDt": "2026-03-20", "pETtm": 9.1},
+        {"trdDt": "2026-03-24", "pETtm": 10.8},
+    ]
+    responses = [
+        md.requests.exceptions.ConnectionError("Connection aborted. Remote end closed connection without response"),
+        FakeResponse(payload),
+    ]
+    calls = []
+
+    def fake_get(url, timeout):
+        calls.append((url, timeout))
+        response = responses.pop(0)
+        if isinstance(response, Exception):
+            raise response
+        return response
+
+    monkeypatch.setattr(md.requests, "get", fake_get)
+    monkeypatch.setattr(md.time, "sleep", lambda seconds: None)
+
+    result = md.fetch_index_pe_history("931052", url="https://example.com/valuation.json")
+
+    assert result["date"].dt.strftime("%Y-%m-%d").tolist() == ["2026-03-20", "2026-03-24"]
+    assert result["pe"].tolist() == [9.1, 10.8]
+    assert calls == [
+        ("https://example.com/valuation.json", 15),
+        ("https://example.com/valuation.json", 15),
+    ]
+
+
+def test_main_keeps_other_charts_when_one_valuation_chart_fails(monkeypatch, capsys):
+    workspace_tmp = Path(".test_artifacts") / f"test_main_charts_{uuid.uuid4().hex}"
+    workspace_tmp.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("WEBHOOK_URL", "https://example.invalid/webhook")
+    monkeypatch.setenv("CONFIG_PATH", str(workspace_tmp / "config.yaml"))
+    monkeypatch.setenv("RECEIVER_EMAIL", "alice@example.com")
+    monkeypatch.setenv("SMTP_USER", "sender@example.com")
+    monkeypatch.setenv("SMTP_PASS", "secret")
+
+    config_path = workspace_tmp / "config.yaml"
+    config_path.write_text(
+        """
+targets:
+  - name: "价值100"
+    code: "512040"
+    type: "valuation"
+  - name: "沪深300"
+    code: "000300"
+    type: "valuation"
+""".strip(),
+        encoding="utf-8",
+    )
+
+    metrics_by_code = {
+        "512040": {
+            "index_code": "931052",
+            "index_name": "价值100",
+            "index_dividend_yield": 4.0309,
+            "index_dividend_yield_source": "https://example.com/dividend/931052.json",
+            "index_valuation_date": "2026-05-12",
+            "index_valuation_percentile_source": "https://example.com/valuation/931052.json",
+            "index_valuation_metrics": {"PE(TTM)": {"current": 10.8, "percentiles": {"5Y": 91.2}}},
+        },
+        "000300": {
+            "index_code": "000300",
+            "index_name": "沪深300",
+            "index_dividend_yield": 2.4652,
+            "index_dividend_yield_source": "https://example.com/dividend/000300.json",
+            "index_valuation_date": "2026-05-12",
+            "index_valuation_percentile_source": "https://example.com/valuation/000300.json",
+            "index_valuation_metrics": {"PE(TTM)": {"current": 12.3, "percentiles": {"5Y": 55.0}}},
+        },
+    }
+
+    monkeypatch.setattr(md, "fetch_cn_10y_bond_yield", lambda: 1.7592)
+    monkeypatch.setattr(
+        md,
+        "fetch_cn_10y_bond_history",
+        lambda: pd.DataFrame({"date": pd.to_datetime(["2026-05-12"]), "yield_pct": [1.7592]}),
+    )
+    monkeypatch.setattr(md, "fetch_target_index_metrics", lambda target: metrics_by_code[str(target["code"])])
+    monkeypatch.setattr(md, "attach_equity_bond_ratio", lambda item, bond_yield: None)
+    monkeypatch.setattr(md, "attach_equity_bond_spread", lambda item, bond_history: None)
+    monkeypatch.setattr(md, "send_webhook", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("send_webhook should not be called")))
+
+    fx_png = workspace_tmp / "fx.png"
+    fx_png.write_bytes(b"fx")
+    captured = {}
+    monkeypatch.setattr(md, "send_email", lambda config, triggered_items, valuation_items=None, current_time=None, chart_paths=None, fx_chart_path=None: captured.update({
+        "chart_paths": chart_paths,
+        "fx_chart_path": fx_chart_path,
+        "valuation_items": valuation_items,
+    }))
+
+    def fake_generate_fx_chart(output_dir):
+        return fx_png
+
+    def fake_generate_valuation_percentile_chart(target, output_dir):
+        index_code = str(target.get("index_code") or target.get("code"))
+        if index_code == "931052":
+            raise RuntimeError("simulated chart failure")
+        output_path = workspace_tmp / f"{index_code}.png"
+        output_path.write_bytes(b"png")
+        return output_path
+
+    monkeypatch.setattr("prototype_fx_chart.generate_fx_chart", fake_generate_fx_chart)
+    monkeypatch.setattr(valuation_chart, "generate_valuation_percentile_chart", fake_generate_valuation_percentile_chart)
+
+    try:
+        md.main()
+
+        output = capsys.readouterr().out
+        assert "邮件图表批量生成异常" not in output
+        assert "价值100" in output
+        assert "simulated chart failure" in output
+        assert captured["fx_chart_path"] == fx_png
+        assert captured["chart_paths"] == {"000300": workspace_tmp / "000300.png"}
+    finally:
+        shutil.rmtree(workspace_tmp, ignore_errors=True)
