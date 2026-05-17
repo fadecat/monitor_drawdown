@@ -1,0 +1,54 @@
+name: CCTDA Coal Daily Email
+
+on:
+  schedule:
+    # GitHub Actions 使用 UTC，错开整点拥堵；UTC 07:03 = Asia/Shanghai 15:03
+    - cron: "3 7 * * *"
+  workflow_dispatch:
+
+jobs:
+  cctda-coal-daily:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests beautifulsoup4 PyMuPDF pytest
+
+      - name: Run CCTDA coal daily monitor
+        env:
+          RECEIVER_EMAIL: ${{ secrets.RECEIVER_EMAIL }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          CCTDA_STATE_PATH: ./data_state/cctda_coal_daily.json
+        run: python monitor_cctda_coal_daily.py
+
+      - name: Detect state file changes
+        id: state_changes
+        run: |
+          if [ -n "$(git status --porcelain -- data_state/cctda_coal_daily.json)" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Commit state file
+        if: steps.state_changes.outputs.changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data_state/cctda_coal_daily.json
+          git commit -m "chore: update cctda coal daily state"
+          git push
