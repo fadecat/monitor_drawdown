@@ -35,6 +35,7 @@ email_preview_with_charts.html
 # IDE / editor
 .vscode/
 .idea/
+.worktrees/
 
 # OS files
 .DS_Store
