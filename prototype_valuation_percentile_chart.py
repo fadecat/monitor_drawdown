@@ -202,7 +202,6 @@ def _draw_main_chart(ax, data: Dict) -> None:
         alpha=0.95,
         zorder=1,
     )
-    ax.scatter([dates.iloc[-1]], [pes.iloc[-1]], s=36, color=PALETTE["orange"], zorder=5)
     ax.annotate(
         f"{pes.iloc[-1]:.2f}",
         xy=(dates.iloc[-1], pes.iloc[-1]),

@@ -126,7 +126,6 @@ def _build_figure(data: Dict) -> Figure:
         solid_joinstyle="round",
         solid_capstyle="round",
     )
-    chart_ax.scatter([dates.iloc[-1]], [prices.iloc[-1]], s=36, color=PALETTE["line"], zorder=5)
     chart_ax.annotate(
         f"{prices.iloc[-1]:.4f}",
         xy=(dates.iloc[-1], prices.iloc[-1]),
