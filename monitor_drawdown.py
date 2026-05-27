@@ -826,7 +826,10 @@ def fetch_fx_history_with_archive_fallback(
             raise ValueError("FX 实时数据为空")
         return result
     except Exception as live_exc:  # noqa: BLE001
-        records = load_archive_records("fx", archive_root=archive_root)
+        try:
+            records = load_archive_records("fx", archive_root=archive_root)
+        except Exception:
+            raise live_exc
         latest_date = _get_latest_record_date(records, ("日期",))
         if not latest_date or not is_archive_fresh(latest_date, now=now):
             raise live_exc
