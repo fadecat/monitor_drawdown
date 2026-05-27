@@ -268,6 +268,8 @@ def load_archive_records(
 ) -> List[Dict]:
     if dataset_name == "bond_10y":
         path = archive_root / dataset_name / "china_10y.json"
+    elif dataset_name == "fx":
+        path = archive_root / dataset_name / "usd_cnh.json"
     else:
         resolved_index_code = str(index_code or "").strip()
         if not resolved_index_code:
@@ -808,6 +810,34 @@ def fetch_cn_10y_bond_history_with_archive_fallback(
             raise live_exc
         print(f"[WARN] 10年期国债历史实时接口失败，已回退归档 -> {live_exc}")
         return result, {"data_source": "archive", "archive_latest_date": latest_date}
+
+
+def fetch_fx_history_with_archive_fallback(
+    symbol: str = "USDCNH",
+    archive_root: Path = ARCHIVE_ROOT,
+    now: Optional[datetime] = None,
+) -> pd.DataFrame:
+    try:
+        df = run_with_retry("fx_usdcnh", lambda: ak.forex_hist_em(symbol=symbol).copy())
+        df["日期"] = pd.to_datetime(df["日期"], errors="coerce")
+        df["市场价"] = pd.to_numeric(df["最新价"], errors="coerce")
+        result = df[["日期", "代码", "名称", "市场价"]].dropna().sort_values("日期").reset_index(drop=True)
+        if result.empty:
+            raise ValueError("FX 实时数据为空")
+        return result
+    except Exception as live_exc:  # noqa: BLE001
+        records = load_archive_records("fx", archive_root=archive_root)
+        latest_date = _get_latest_record_date(records, ("日期",))
+        if not latest_date or not is_archive_fresh(latest_date, now=now):
+            raise live_exc
+        df = pd.DataFrame(records)
+        df["日期"] = pd.to_datetime(df["日期"], errors="coerce")
+        df["市场价"] = pd.to_numeric(df["最新价"], errors="coerce")
+        result = df[["日期", "代码", "名称", "市场价"]].dropna().sort_values("日期").reset_index(drop=True)
+        if result.empty:
+            raise live_exc
+        print(f"[WARN] 汇率实时接口失败，已回退归档 -> {live_exc}")
+        return result
 
 
 def fetch_index_pe_history(index_code: str, url: str = "") -> pd.DataFrame:
@@ -2309,7 +2339,11 @@ def main() -> None:
                     from prototype_valuation_percentile_chart import generate_valuation_percentile_chart
 
                     chart_output_dir = _Path(".email_chart_cache")
-                    fx_chart_path = generate_fx_chart(chart_output_dir)
+                    try:
+                        fx_chart_path = generate_fx_chart(chart_output_dir)
+                    except Exception as exc:  # noqa: BLE001
+                        print(f"[WARN] 汇率图生成失败: {exc}")
+                        fx_chart_path = None
                     for v_item in (valuation_items or []):
                         target = dict(v_item)
                         target.update(

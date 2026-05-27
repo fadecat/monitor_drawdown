@@ -544,6 +544,7 @@ def test_main_returns_zero_when_any_archive_work_succeeds(monkeypatch, tmp_path:
         "dividend": [],
         "valuation": [],
         "bond": None,
+        "fx": None,
     }
 
     frozen_updated_at = "2026-05-13T15:10:00+08:00"
@@ -590,8 +591,13 @@ def test_main_returns_zero_when_any_archive_work_succeeds(monkeypatch, tmp_path:
         called["bond"] = (archive_root, updated_at, start_date)
         return []
 
+    def refresh_fx_dataset_stub(archive_root, updated_at):
+        called["fx"] = (archive_root, updated_at)
+        return []
+
     monkeypatch.setattr(rda, "refresh_index_dataset", refresh_index_dataset_stub)
     monkeypatch.setattr(rda, "refresh_bond_dataset", refresh_bond_dataset_stub)
+    monkeypatch.setattr(rda, "refresh_fx_dataset", refresh_fx_dataset_stub)
 
     exit_code = rda.main(["--config", "custom-config.yaml"])
 
@@ -614,6 +620,10 @@ def test_main_returns_zero_when_any_archive_work_succeeds(monkeypatch, tmp_path:
         tmp_path / "archive-root",
         "2026-05-13T15:10:00+08:00",
         expected_bond_start_date,
+    )
+    assert called["fx"] == (
+        tmp_path / "archive-root",
+        "2026-05-13T15:10:00+08:00",
     )
 
 

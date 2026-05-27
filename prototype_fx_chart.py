@@ -12,7 +12,6 @@ from matplotlib.figure import Figure
 from matplotlib.ticker import FormatStrFormatter
 import pandas as pd
 
-import akshare as ak
 
 
 FIGURE_DPI = 180
@@ -55,11 +54,9 @@ def pick_available_font_family() -> list[str]:
 
 
 def _build_hist_df(symbol: str) -> pd.DataFrame:
-    df = ak.forex_hist_em(symbol=symbol).copy()
-    df["日期"] = pd.to_datetime(df["日期"], errors="coerce")
-    df["市场价"] = pd.to_numeric(df["最新价"], errors="coerce")
-    df = df[["日期", "代码", "名称", "市场价"]].dropna().sort_values("日期").reset_index(drop=True)
-    return df
+    from monitor_drawdown import fetch_fx_history_with_archive_fallback
+
+    return fetch_fx_history_with_archive_fallback(symbol=symbol)
 
 
 def _prepare_chart_data(days: int = DEFAULT_DAYS, hist_symbol: str = DEFAULT_HIST_SYMBOL) -> Optional[Dict]:

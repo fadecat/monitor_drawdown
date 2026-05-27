@@ -100,7 +100,11 @@ def main() -> int:
 
     chart_paths = generate_chart_paths(valuation_items)
     print(f"[INFO] 邮件图生成: {len(chart_paths)}/{len(valuation_items)}")
-    fx_chart_path = generate_fx_chart_path()
+    try:
+        fx_chart_path = generate_fx_chart_path()
+    except Exception as exc:  # noqa: BLE001
+        print(f"[WARN] 汇率图生成失败: {exc}")
+        fx_chart_path = None
     print(f"[INFO] 外汇图生成: {'OK' if fx_chart_path else 'SKIP'}")
 
     current_time = md.now_in_beijing()

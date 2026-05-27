@@ -15,6 +15,7 @@ from monitor_drawdown import (
     build_index_valuation_percentile_url,
     fetch_json_response,
     load_config,
+    run_with_retry,
 )
 
 
@@ -207,6 +208,33 @@ def refresh_bond_dataset(archive_root: Path, updated_at: str, start_date: str) -
     return [output_path] if changed else []
 
 
+def fetch_fx_archive_records() -> List[Dict]:
+    df = ak.forex_hist_em(symbol="USDCNH").copy()
+    if df is None or getattr(df, "empty", True):
+        return []
+    df["日期"] = pd.to_datetime(df["日期"], errors="coerce")
+    df["最新价"] = pd.to_numeric(df["最新价"], errors="coerce")
+    cleaned = df.astype(object).where(pd.notna(df), None)
+    return cleaned.to_dict(orient="records")
+
+
+def refresh_fx_dataset(archive_root: Path, updated_at: str) -> List[Path]:
+    output_path = archive_root / "fx" / "usd_cnh.json"
+    existing_records = load_existing_records(output_path)
+    incoming_records = run_with_retry("fx_archive", fetch_fx_archive_records)
+    merged_records = merge_records_by_key(existing_records, incoming_records, key="日期")
+    if merged_records == existing_records:
+        return []
+    changed = write_archive_file(
+        output_path=output_path,
+        source="akshare.forex_hist_em",
+        identity={"series": "usd_cnh"},
+        records=merged_records,
+        updated_at=updated_at,
+    )
+    return [output_path] if changed else []
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Refresh local archive datasets.")
     parser.add_argument("--config", default="config.yaml")
@@ -266,6 +294,12 @@ def main(argv=None) -> int:
                 archive_root=ARCHIVE_ROOT,
                 updated_at=updated_at,
                 start_date=bond_start_date,
+            )
+        )
+        changed_paths.extend(
+            refresh_fx_dataset(
+                archive_root=ARCHIVE_ROOT,
+                updated_at=updated_at,
             )
         )
         return 0
