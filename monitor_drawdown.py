@@ -817,30 +817,54 @@ def fetch_fx_history_with_archive_fallback(
     archive_root: Path = ARCHIVE_ROOT,
     now: Optional[datetime] = None,
 ) -> pd.DataFrame:
+    errors: List[str] = []
+
+    # Tier 1: SAFE (国家外汇管理局) — 最稳定，无代理问题
+    try:
+        raw = run_with_retry("fx_safe", ak.currency_boc_safe)
+        if raw is not None and not getattr(raw, "empty", True):
+            df = raw.copy()
+            date_col = df.columns[0]
+            usd_col = df.columns[1]
+            df["日期"] = pd.to_datetime(df[date_col], errors="coerce")
+            df["市场价"] = pd.to_numeric(df[usd_col], errors="coerce") / 100
+            df["代码"] = symbol
+            df["名称"] = symbol
+            result = df[["日期", "代码", "名称", "市场价"]].dropna().sort_values("日期").reset_index(drop=True)
+            if not result.empty:
+                print(f"[INFO] 汇率数据来源: SAFE 中间价 ({len(result)} 条)")
+                return result
+    except Exception as exc:  # noqa: BLE001
+        errors.append(f"SAFE: {exc}")
+
+    # Tier 2: AKShare eastmoney 市场价
     try:
         df = run_with_retry("fx_usdcnh", lambda: ak.forex_hist_em(symbol=symbol).copy())
         df["日期"] = pd.to_datetime(df["日期"], errors="coerce")
         df["市场价"] = pd.to_numeric(df["最新价"], errors="coerce")
         result = df[["日期", "代码", "名称", "市场价"]].dropna().sort_values("日期").reset_index(drop=True)
-        if result.empty:
-            raise ValueError("FX 实时数据为空")
-        return result
-    except Exception as live_exc:  # noqa: BLE001
-        try:
-            records = load_archive_records("fx", archive_root=archive_root)
-        except Exception:
-            raise live_exc
+        if not result.empty:
+            print(f"[INFO] 汇率数据来源: eastmoney 市场价 ({len(result)} 条)")
+            return result
+    except Exception as exc:  # noqa: BLE001
+        errors.append(f"eastmoney: {exc}")
+
+    # Tier 3: Archive fallback
+    try:
+        records = load_archive_records("fx", archive_root=archive_root)
         latest_date = _get_latest_record_date(records, ("日期",))
-        if not latest_date or not is_archive_fresh(latest_date, now=now):
-            raise live_exc
-        df = pd.DataFrame(records)
-        df["日期"] = pd.to_datetime(df["日期"], errors="coerce")
-        df["市场价"] = pd.to_numeric(df["最新价"], errors="coerce")
-        result = df[["日期", "代码", "名称", "市场价"]].dropna().sort_values("日期").reset_index(drop=True)
-        if result.empty:
-            raise live_exc
-        print(f"[WARN] 汇率实时接口失败，已回退归档 -> {live_exc}")
-        return result
+        if latest_date and is_archive_fresh(latest_date, now=now):
+            df = pd.DataFrame(records)
+            df["日期"] = pd.to_datetime(df["日期"], errors="coerce")
+            df["市场价"] = pd.to_numeric(df["最新价"], errors="coerce")
+            result = df[["日期", "代码", "名称", "市场价"]].dropna().sort_values("日期").reset_index(drop=True)
+            if not result.empty:
+                print(f"[INFO] 汇率数据来源: archive 归档 ({len(result)} 条, 最新 {latest_date})")
+                return result
+    except Exception as exc:  # noqa: BLE001
+        errors.append(f"archive: {exc}")
+
+    raise RuntimeError("; ".join(errors) if errors else "汇率数据获取失败")
 
 
 def fetch_index_pe_history(index_code: str, url: str = "") -> pd.DataFrame:
