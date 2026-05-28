@@ -1,7 +1,7 @@
 {
   "source": "https://cdn.efunds.com.cn/etf-net/index_valuation_percentile_399303.json",
   "index_code": "399303",
-  "updated_at": "2026-05-27T19:02:13.712369+08:00",
+  "updated_at": "2026-05-28T19:04:03.575789+08:00",
   "records": [
     {
       "pBLf": 2.6501,
@@ -100134,7 +100134,7 @@
       "trdDt": "2026-05-12"
     },
     {
-      "pBLf": 3.1622,
+      "pBLf": 3.1623,
       "pBLf10Y": 88.4948,
       "pBLf1Y": 100.0,
       "pBLf2Y": 100.0,
@@ -100162,7 +100162,7 @@
       "pSTtm3Y": 100.0,
       "pSTtm5Y": 100.0,
       "pSTtm6M": 100.0,
-      "pSTtmBgn": 76.6497,
+      "pSTtmBgn": 77.1651,
       "pSTtmTY": 100.0,
       "trdCode": "399303",
       "trdDt": "2026-05-13"
@@ -100196,13 +100196,13 @@
       "pSTtm3Y": 99.5862,
       "pSTtm5Y": 99.7519,
       "pSTtm6M": 97.4138,
-      "pSTtmBgn": 76.6497,
+      "pSTtmBgn": 77.1651,
       "pSTtmTY": 96.3855,
       "trdCode": "399303",
       "trdDt": "2026-05-14"
     },
     {
-      "pBLf": 3.0808,
+      "pBLf": 3.0809,
       "pBLf10Y": 85.9497,
       "pBLf1Y": 97.9339,
       "pBLf2Y": 98.9669,
@@ -100230,7 +100230,7 @@
       "pSTtm3Y": 99.1724,
       "pSTtm5Y": 99.5041,
       "pSTtm6M": 94.8718,
-      "pSTtmBgn": 76.6497,
+      "pSTtmBgn": 77.1651,
       "pSTtmTY": 92.8571,
       "trdCode": "399303",
       "trdDt": "2026-05-15"
@@ -100264,7 +100264,7 @@
       "pSTtm3Y": 99.1701,
       "pSTtm5Y": 99.5037,
       "pSTtm6M": 94.8276,
-      "pSTtmBgn": 76.6497,
+      "pSTtmBgn": 77.1651,
       "pSTtmTY": 92.9412,
       "trdCode": "399303",
       "trdDt": "2026-05-18"
@@ -100298,7 +100298,7 @@
       "pSTtm3Y": 99.7234,
       "pSTtm5Y": 99.8346,
       "pSTtm6M": 98.2759,
-      "pSTtmBgn": 76.6497,
+      "pSTtmBgn": 77.1651,
       "pSTtmTY": 97.6744,
       "trdCode": "399303",
       "trdDt": "2026-05-19"
@@ -100332,7 +100332,7 @@
       "pSTtm3Y": 99.5856,
       "pSTtm5Y": 99.7519,
       "pSTtm6M": 97.4138,
-      "pSTtmBgn": 76.6497,
+      "pSTtmBgn": 77.1651,
       "pSTtmTY": 96.5517,
       "trdCode": "399303",
       "trdDt": "2026-05-20"
@@ -100366,7 +100366,7 @@
       "pSTtm3Y": 97.3793,
       "pSTtm5Y": 98.4285,
       "pSTtm6M": 83.6207,
-      "pSTtmBgn": 76.6497,
+      "pSTtmBgn": 77.1651,
       "pSTtmTY": 78.4091,
       "trdCode": "399303",
       "trdDt": "2026-05-21"
@@ -100400,13 +100400,13 @@
       "pSTtm3Y": 98.7586,
       "pSTtm5Y": 99.2562,
       "pSTtm6M": 92.3077,
-      "pSTtmBgn": 76.6497,
+      "pSTtmBgn": 77.1651,
       "pSTtmTY": 89.8876,
       "trdCode": "399303",
       "trdDt": "2026-05-22"
     },
     {
-      "pBLf": 3.1156,
+      "pBLf": 3.1157,
       "pBLf10Y": 87.1753,
       "pBLf1Y": 98.3471,
       "pBLf2Y": 99.1718,
@@ -100434,7 +100434,7 @@
       "pSTtm3Y": 99.3084,
       "pSTtm5Y": 99.5864,
       "pSTtm6M": 95.6897,
-      "pSTtmBgn": 76.6497,
+      "pSTtmBgn": 77.1651,
       "pSTtmTY": 94.4444,
       "trdCode": "399303",
       "trdDt": "2026-05-25"
@@ -100468,10 +100468,44 @@
       "pSTtm3Y": 98.3402,
       "pSTtm5Y": 99.0074,
       "pSTtm6M": 89.6552,
-      "pSTtmBgn": 76.6497,
+      "pSTtmBgn": 77.1651,
       "pSTtmTY": 86.8132,
       "trdCode": "399303",
       "trdDt": "2026-05-26"
+    },
+    {
+      "pBLf": 3.0198,
+      "pBLf10Y": 84.9485,
+      "pBLf1Y": 93.8017,
+      "pBLf2Y": 96.9008,
+      "pBLf3M": 77.9661,
+      "pBLf3Y": 97.931,
+      "pBLf5Y": 98.7603,
+      "pBLf6M": 87.1795,
+      "pBLfBgn": 73.41,
+      "pBLfTY": 83.871,
+      "pETtm": 67.0904,
+      "pETtm10Y": 92.3711,
+      "pETtm1Y": 93.3884,
+      "pETtm2Y": 96.6942,
+      "pETtm3M": 72.8814,
+      "pETtm3Y": 97.7931,
+      "pETtm5Y": 98.6777,
+      "pETtm6M": 86.3248,
+      "pETtmBgn": 83.1867,
+      "pETtmTY": 82.7957,
+      "pSTtm": 2.2912,
+      "pSTtm10Y": 84.8185,
+      "pSTtm1Y": 90.4564,
+      "pSTtm2Y": 95.2381,
+      "pSTtm3M": 68.9655,
+      "pSTtm3Y": 96.8232,
+      "pSTtm5Y": 98.0976,
+      "pSTtm6M": 80.1724,
+      "pSTtmBgn": 77.1651,
+      "pSTtmTY": 75.0,
+      "trdCode": "399303",
+      "trdDt": "2026-05-27"
     }
   ]
 }
