@@ -1,9 +1,14 @@
 targets:
 
-  - name: "价值100"
+  - name: "中证价值100"
     code: "512040"
     type: "valuation"
     index_detail_url: "https://www.etf.com.cn/api/etf-api-service/index/detail?indexCode=931052"
+
+  - name: "国证价值100"
+    code: "159263"
+    type: "valuation"
+    index_detail_url: "https://www.etf.com.cn/api/etf-api-service/index/detail?indexCode=980081"
 
   - name: "红利低波动100"
     code: "930955"
