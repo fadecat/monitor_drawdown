@@ -1,4 +1,5 @@
 from email.message import EmailMessage
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -120,3 +121,51 @@ def test_send_period_return_email_uses_smtp_ssl(monkeypatch, tmp_path: Path):
     assert sent["username"] == "sender@qq.com"
     assert sent["password"] == "auth-code"
     assert sent["message"]["Subject"] == module.PERIOD_RETURN_EMAIL_SUBJECT
+
+
+def test_collect_period_return_email_payloads_supports_mixed_source_targets(monkeypatch, tmp_path: Path):
+    config_path = tmp_path / "period_return_email_config.yaml"
+    payloads = {
+        "analyses": [
+            {"code": "159934", "latest_date": "2026-05-29", "period_returns": {}},
+            {"code": "cb_equal_weight", "latest_date": "2026-06-02", "period_returns": {}},
+        ],
+        "table_rows": [
+            {"target_key": "etf_com_cn:159934", "name": "黄金ETF易方达", "code": "159934", "return_1m": "10.00%"},
+            {"target_key": "jisilu_cb_index:cb_equal_weight", "name": "集思录转债等权", "code": "cb_equal_weight", "return_1m": "2.50%"},
+        ],
+        "curve_payloads": {
+            "etf_com_cn:159934": [{"date": "2026-05-29", "return_pct": 0.0}],
+            "jisilu_cb_index:cb_equal_weight": [{"date": "2026-06-02", "return_pct": 0.0}],
+        },
+        "as_of_label": "2026-06-02",
+    }
+
+    seen = {}
+
+    def fake_collect_period_return_payloads(*, config_path: Path, output_dir: Path):
+        seen["config_path"] = config_path
+        seen["output_dir"] = output_dir
+        assert output_dir == tmp_path / "out"
+        return payloads
+
+    def fake_generate_chart(table_rows, curve_payloads, output_dir):
+        assert [row["name"] for row in table_rows] == ["黄金ETF易方达", "集思录转债等权"]
+        assert set(curve_payloads) == {"etf_com_cn:159934", "jisilu_cb_index:cb_equal_weight"}
+        path = output_dir / "chart.png"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"png")
+        return path
+
+    monkeypatch.setattr(module.analysis, "collect_period_return_payloads", fake_collect_period_return_payloads)
+    monkeypatch.setattr(module.chart, "generate_one_month_return_chart", fake_generate_chart)
+
+    payloads = module.collect_period_return_email_payloads(config_path=config_path, output_dir=tmp_path / "out")
+
+    assert seen == {
+        "config_path": config_path,
+        "output_dir": tmp_path / "out",
+    }
+    assert [row["name"] for row in payloads["table_rows"]] == ["黄金ETF易方达", "集思录转债等权"]
+    assert payloads["as_of_label"] == "2026-06-02"
+    assert payloads["chart_path"].name == "chart.png"

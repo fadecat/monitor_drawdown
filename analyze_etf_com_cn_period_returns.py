@@ -5,6 +5,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any, Callable
 
+import cb_index_history
 import requests
 import yaml
 
@@ -327,6 +328,81 @@ def compute_period_returns(code: str, rows: list[dict[str, Any]]) -> dict[str, A
     return compute_period_returns_from_series(code, normalize_etf_nav_rows(rows))
 
 
+def build_target_key(target: dict[str, str]) -> str:
+    return f"{target['source']}:{target['id']}"
+
+
+def build_target_storage_key(target_key: str) -> str:
+    return target_key.replace(":", "__")
+
+
+def _build_target_series_context(targets: list[dict[str, str]]) -> dict[str, Any]:
+    etf_codes: list[str] = []
+    seen_etf_codes: set[str] = set()
+    for target in targets:
+        if target["source"] != "etf_com_cn":
+            continue
+        code = target["id"]
+        if code in seen_etf_codes:
+            continue
+        etf_codes.append(code)
+        seen_etf_codes.add(code)
+
+    nav_rows_by_code = {code: load_nav_rows(code) for code in etf_codes}
+    etf_names = fetch_fund_names(etf_codes) if etf_codes else {}
+    cb_series = cb_index_history.build_runtime_index_series() if any(target["source"] == "jisilu_cb_index" for target in targets) else None
+    return {
+        "nav_rows_by_code": nav_rows_by_code,
+        "etf_names": etf_names,
+        "cb_index_series": cb_series,
+    }
+
+
+def resolve_target_display_name(target: dict[str, str], etf_names: dict[str, str] | None = None) -> str:
+    source = target["source"]
+    if source == "etf_com_cn":
+        return str((etf_names or {}).get(target["id"]) or target.get("name") or "").strip()
+    return str(target.get("name") or "").strip()
+
+
+def build_target_analysis(target: dict[str, str], series_context: dict[str, Any] | None = None) -> dict[str, Any]:
+    target_id = target["id"]
+    source = target["source"]
+    context = series_context or {}
+    if source == "etf_com_cn":
+        rows = context.get("nav_rows_by_code", {}).get(target_id)
+        if rows is None:
+            rows = load_nav_rows(target_id)
+        result = compute_period_returns(target_id, rows)
+        result["target_key"] = build_target_key(target)
+        return result
+    if source == "jisilu_cb_index":
+        series = context.get("cb_index_series")
+        if series is None:
+            series = cb_index_history.build_runtime_index_series()
+        result = compute_period_returns_from_series(target_id, series)
+        result["target_key"] = build_target_key(target)
+        return result
+    raise ValueError(f"unsupported target source: {source}")
+
+
+def build_target_one_month_curve(target: dict[str, str], series_context: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    target_id = target["id"]
+    source = target["source"]
+    context = series_context or {}
+    if source == "etf_com_cn":
+        rows = context.get("nav_rows_by_code", {}).get(target_id)
+        if rows is None:
+            rows = load_nav_rows(target_id)
+        return build_one_month_curve(rows)
+    if source == "jisilu_cb_index":
+        series = context.get("cb_index_series")
+        if series is None:
+            series = cb_index_history.build_runtime_index_series()
+        return build_one_month_curve_from_series(series)
+    raise ValueError(f"unsupported target source: {source}")
+
+
 def format_period_value(period: dict[str, Any]) -> str:
     if not period["available"]:
         return "--"
@@ -360,9 +436,11 @@ def build_table_rows(analyses: list[dict[str, Any]], names: dict[str, str]) -> l
     for analysis in analyses:
         code = analysis["code"]
         period_returns = analysis["period_returns"]
+        target_key = str(analysis.get("target_key") or code)
         rows.append(
             {
-                "name": names.get(code, ""),
+                "target_key": target_key,
+                "name": names.get(target_key, names.get(code, "")),
                 "code": code,
                 "return_1m": format_period_value(period_returns["1m"]),
                 "return_3m": format_period_value(period_returns["3m"]),
@@ -376,6 +454,53 @@ def build_table_rows(analyses: list[dict[str, Any]], names: dict[str, str]) -> l
             }
         )
     return rows
+
+
+def build_period_return_payloads(
+    targets: list[dict[str, str]],
+    output_dir: Path | None = None,
+) -> dict[str, Any]:
+    series_context = _build_target_series_context(targets)
+    names = {
+        build_target_key(target): resolve_target_display_name(target, series_context["etf_names"])
+        for target in targets
+    }
+    analyses = [build_target_analysis(target, series_context=series_context) for target in targets]
+    table_rows = build_table_rows(analyses, names)
+
+    curve_payloads: dict[str, list[dict[str, Any]]] = {}
+    for target in targets:
+        target_key = build_target_key(target)
+        curve = build_target_one_month_curve(target, series_context=series_context)
+        curve_payloads[target_key] = curve
+
+    if output_dir is not None:
+        analysis_dir = output_dir / "period_return_analysis"
+        curve_dir = output_dir / "one_month_analysis"
+        write_analysis_payloads(analyses, output_dir=analysis_dir)
+        write_table_json(table_rows, output_dir=analysis_dir)
+        for target_key, curve in curve_payloads.items():
+            write_one_month_curve_json(
+                build_target_storage_key(target_key),
+                curve,
+                output_dir=curve_dir,
+            )
+
+    as_of_label = max(item["latest_date"] for item in analyses)
+    return {
+        "analyses": analyses,
+        "table_rows": table_rows,
+        "curve_payloads": curve_payloads,
+        "as_of_label": as_of_label,
+    }
+
+
+def collect_period_return_payloads(
+    config_path: Path,
+    output_dir: Path,
+) -> dict[str, Any]:
+    targets = load_period_return_targets(config_path)
+    return build_period_return_payloads(targets, output_dir=output_dir)
 
 
 def render_report(analyses: list[dict[str, Any]], output_dir: Path = OUTPUT_DIR) -> str:
@@ -399,7 +524,8 @@ def render_report(analyses: list[dict[str, Any]], output_dir: Path = OUTPUT_DIR)
 def write_analysis_payloads(analyses: list[dict[str, Any]], output_dir: Path = OUTPUT_DIR) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     for analysis in analyses:
-        path = output_dir / f"{analysis['code']}_period_returns.json"
+        file_key = build_target_storage_key(str(analysis.get("target_key") or analysis["code"]))
+        path = output_dir / f"{file_key}_period_returns.json"
         path.write_text(
             json.dumps(analysis, ensure_ascii=False, indent=2),
             encoding="utf-8",

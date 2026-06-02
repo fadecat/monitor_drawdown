@@ -21,6 +21,21 @@ def test_build_one_month_chart_series_sorts_by_last_return():
     assert series[1]["last_return_pct"] == 11.18
 
 
+def test_build_one_month_chart_series_prefers_target_key_when_present():
+    table_rows = [
+        {"target_key": "etf_com_cn:001", "name": "A", "code": "001", "return_1m": "-2.52%"},
+        {"target_key": "jisilu_cb_index:001", "name": "B", "code": "001", "return_1m": "1.18%"},
+    ]
+    curve_payloads = {
+        "etf_com_cn:001": [{"date": "2026-04-29", "return_pct": 0.0}, {"date": "2026-05-29", "return_pct": -2.52}],
+        "jisilu_cb_index:001": [{"date": "2026-04-29", "return_pct": 0.0}, {"date": "2026-05-29", "return_pct": 1.18}],
+    }
+
+    series = module.build_one_month_chart_series(table_rows, curve_payloads)
+
+    assert [(item["name"], item["last_return_pct"]) for item in series] == [("A", -2.52), ("B", 1.18)]
+
+
 def test_compute_label_positions_separates_close_values():
     values = [-2.52, -2.4, -2.35, 0.51, 0.6]
 

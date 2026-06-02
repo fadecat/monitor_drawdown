@@ -28,32 +28,22 @@ def collect_period_return_email_payloads(
     config_path: Path = DEFAULT_CONFIG_PATH,
     output_dir: Path = DEFAULT_OUTPUT_DIR,
 ) -> dict[str, Any]:
-    codes = analysis.load_period_return_email_codes(config_path)
-    analyses = [analysis.compute_period_returns(code, analysis.load_nav_rows(code)) for code in codes]
-    names = analysis.fetch_fund_names(codes)
-    table_rows = analysis.build_table_rows(analyses, names)
-
-    analysis_dir = output_dir / "period_return_analysis"
-    curve_dir = output_dir / "one_month_analysis"
-    analysis.write_analysis_payloads(analyses, output_dir=analysis_dir)
-    analysis.write_table_json(table_rows, output_dir=analysis_dir)
-
-    curve_payloads: dict[str, list[dict[str, Any]]] = {}
-    for code in codes:
-        curve = analysis.build_one_month_curve(analysis.load_nav_rows(code))
-        analysis.write_one_month_curve_json(code, curve, output_dir=curve_dir)
-        curve_payloads[code] = curve
+    payloads = analysis.collect_period_return_payloads(
+        config_path=config_path,
+        output_dir=output_dir,
+    )
+    table_rows = payloads["table_rows"]
+    curve_payloads = payloads["curve_payloads"]
 
     chart_path = chart.generate_one_month_return_chart(
         table_rows,
         curve_payloads,
         output_dir=output_dir,
     )
-    as_of_label = max(item["latest_date"] for item in analyses)
     return {
         "table_rows": table_rows,
         "chart_path": chart_path,
-        "as_of_label": as_of_label,
+        "as_of_label": payloads["as_of_label"],
     }
 
 

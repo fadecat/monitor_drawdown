@@ -487,6 +487,7 @@ def test_build_table_rows_formats_display_values():
 
     assert rows == [
         {
+            "target_key": "159934",
             "name": "黄金ETF易方达",
             "code": "159934",
             "return_1m": "-2.52%",
@@ -500,6 +501,180 @@ def test_build_table_rows_formats_display_values():
             "return_since_inception": "278.74%",
         }
     ]
+
+
+def test_build_table_rows_uses_target_config_name_for_jisilu_target():
+    analyses = [
+        {
+            "code": "cb_equal_weight",
+            "latest_date": "2026-06-02",
+            "period_returns": {
+                "1m": {"available": True, "base_date": "2026-05-02", "return_pct": 2.50},
+                "3m": {"available": False, "base_date": None, "return_pct": None},
+                "6m": {"available": False, "base_date": None, "return_pct": None},
+                "1y": {"available": False, "base_date": None, "return_pct": None},
+                "ytd": {"available": True, "base_date": "2026-01-02", "return_pct": 4.20},
+                "3y": {"available": False, "base_date": None, "return_pct": None},
+                "5y": {"available": False, "base_date": None, "return_pct": None},
+                "10y": {"available": False, "base_date": None, "return_pct": None},
+                "since_inception": {"available": True, "base_date": "2026-05-02", "return_pct": 2.50},
+            },
+        }
+    ]
+
+    rows = module.build_table_rows(analyses, {"cb_equal_weight": "集思录转债等权"})
+
+    assert rows == [
+        {
+            "target_key": "cb_equal_weight",
+            "name": "集思录转债等权",
+            "code": "cb_equal_weight",
+            "return_1m": "2.50%",
+            "return_3m": "--",
+            "return_6m": "--",
+            "return_1y": "--",
+            "return_ytd": "4.20%",
+            "return_3y": "--",
+            "return_5y": "--",
+            "return_10y": "--",
+            "return_since_inception": "2.50%",
+        }
+    ]
+
+
+def test_build_period_return_payloads_reuses_single_jisilu_runtime_snapshot(monkeypatch):
+    targets = [
+        {"id": "159934", "source": "etf_com_cn", "name": "配置里的ETF名称"},
+        {"id": "cb_equal_weight", "source": "jisilu_cb_index", "name": "集思录转债等权"},
+    ]
+    etf_rows = [
+        {"trdDt": "2026-04-29", "adjUnitNav": 1.00},
+        {"trdDt": "2026-05-29", "adjUnitNav": 1.10},
+    ]
+    cb_series = [
+        {"date": "2026-05-02", "value": 100.0},
+        {"date": "2026-06-02", "value": 102.5},
+    ]
+    calls = {"nav": [], "names": [], "cb": 0}
+
+    def fake_load_nav_rows(code: str, sample_dir: Path = module.SAMPLE_DIR):
+        del sample_dir
+        calls["nav"].append(code)
+        return etf_rows
+
+    def fake_fetch_fund_names(codes: list[str]):
+        calls["names"].append(list(codes))
+        return {"159934": "接口ETF名称"}
+
+    def fake_build_runtime_index_series():
+        calls["cb"] += 1
+        return cb_series
+
+    monkeypatch.setattr(module, "load_nav_rows", fake_load_nav_rows)
+    monkeypatch.setattr(module, "fetch_fund_names", fake_fetch_fund_names)
+    monkeypatch.setattr(module.cb_index_history, "build_runtime_index_series", fake_build_runtime_index_series)
+
+    payloads = module.build_period_return_payloads(targets)
+
+    assert calls == {
+        "nav": ["159934"],
+        "names": [["159934"]],
+        "cb": 1,
+    }
+    assert [row["name"] for row in payloads["table_rows"]] == ["接口ETF名称", "集思录转债等权"]
+    assert [row["target_key"] for row in payloads["table_rows"]] == [
+        "etf_com_cn:159934",
+        "jisilu_cb_index:cb_equal_weight",
+    ]
+    assert set(payloads["curve_payloads"]) == {
+        "etf_com_cn:159934",
+        "jisilu_cb_index:cb_equal_weight",
+    }
+    assert payloads["as_of_label"] == "2026-06-02"
+
+
+def test_build_period_return_payloads_uses_composite_target_keys_for_same_id(monkeypatch):
+    targets = [
+        {"id": "shared_id", "source": "etf_com_cn", "name": "配置ETF名"},
+        {"id": "shared_id", "source": "jisilu_cb_index", "name": "配置集思录名"},
+    ]
+    etf_rows = [
+        {"trdDt": "2026-04-29", "adjUnitNav": 1.00},
+        {"trdDt": "2026-05-29", "adjUnitNav": 1.10},
+    ]
+    cb_series = [
+        {"date": "2026-04-29", "value": 100.0},
+        {"date": "2026-05-29", "value": 101.0},
+    ]
+
+    monkeypatch.setattr(module, "load_nav_rows", lambda code, sample_dir=module.SAMPLE_DIR: etf_rows)
+    monkeypatch.setattr(module, "fetch_fund_names", lambda codes: {"shared_id": "接口ETF名"})
+    monkeypatch.setattr(module.cb_index_history, "build_runtime_index_series", lambda: cb_series)
+
+    payloads = module.build_period_return_payloads(targets)
+
+    assert payloads["table_rows"] == [
+        {
+            "target_key": "etf_com_cn:shared_id",
+            "name": "接口ETF名",
+            "code": "shared_id",
+            "return_1m": "10.00%",
+            "return_3m": "--",
+            "return_6m": "--",
+            "return_1y": "--",
+            "return_ytd": "10.00%",
+            "return_3y": "--",
+            "return_5y": "--",
+            "return_10y": "--",
+            "return_since_inception": "10.00%",
+        },
+        {
+            "target_key": "jisilu_cb_index:shared_id",
+            "name": "配置集思录名",
+            "code": "shared_id",
+            "return_1m": "1.00%",
+            "return_3m": "--",
+            "return_6m": "--",
+            "return_1y": "--",
+            "return_ytd": "1.00%",
+            "return_3y": "--",
+            "return_5y": "--",
+            "return_10y": "--",
+            "return_since_inception": "1.00%",
+        },
+    ]
+    assert set(payloads["curve_payloads"]) == {
+        "etf_com_cn:shared_id",
+        "jisilu_cb_index:shared_id",
+    }
+
+
+def test_build_period_return_payloads_writes_distinct_files_for_same_id_cross_source(monkeypatch, tmp_path: Path):
+    targets = [
+        {"id": "shared_id", "source": "etf_com_cn", "name": "配置ETF名"},
+        {"id": "shared_id", "source": "jisilu_cb_index", "name": "配置集思录名"},
+    ]
+    etf_rows = [
+        {"trdDt": "2026-04-29", "adjUnitNav": 1.00},
+        {"trdDt": "2026-05-29", "adjUnitNav": 1.10},
+    ]
+    cb_series = [
+        {"date": "2026-04-29", "value": 100.0},
+        {"date": "2026-05-29", "value": 101.0},
+    ]
+
+    monkeypatch.setattr(module, "load_nav_rows", lambda code, sample_dir=module.SAMPLE_DIR: etf_rows)
+    monkeypatch.setattr(module, "fetch_fund_names", lambda codes: {"shared_id": "接口ETF名"})
+    monkeypatch.setattr(module.cb_index_history, "build_runtime_index_series", lambda: cb_series)
+
+    module.build_period_return_payloads(targets, output_dir=tmp_path)
+
+    analysis_dir = tmp_path / "period_return_analysis"
+    curve_dir = tmp_path / "one_month_analysis"
+    assert (analysis_dir / "etf_com_cn__shared_id_period_returns.json").exists()
+    assert (analysis_dir / "jisilu_cb_index__shared_id_period_returns.json").exists()
+    assert (curve_dir / "etf_com_cn__shared_id_one_month_curve.json").exists()
+    assert (curve_dir / "jisilu_cb_index__shared_id_one_month_curve.json").exists()
 
 
 def test_write_table_json_creates_flattened_table_file(tmp_path: Path):

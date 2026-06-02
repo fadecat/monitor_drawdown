@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import base64
 import json
-from datetime import datetime
 from html import escape
 from pathlib import Path
 from typing import Any
@@ -20,7 +19,10 @@ def load_curve_payloads(codes: list[str], sample_dir: Path = DEFAULT_SAMPLE_DIR)
     output: dict[str, list[dict[str, Any]]] = {}
     one_month_dir = sample_dir / "one_month_analysis"
     for code in codes:
-        path = one_month_dir / f"{code}_one_month_curve.json"
+        storage_key = analysis.build_target_storage_key(code)
+        path = one_month_dir / f"{storage_key}_one_month_curve.json"
+        if not path.exists():
+            path = one_month_dir / f"{code}_one_month_curve.json"
         output[code] = json.loads(path.read_text(encoding="utf-8"))
     return output
 
@@ -132,19 +134,12 @@ def write_preview_html(html: str, output_dir: Path) -> Path:
 
 
 def main() -> int:
-    codes = analysis.load_period_return_email_codes(DEFAULT_CONFIG_PATH)
-    analyses = [analysis.compute_period_returns(code, analysis.load_nav_rows(code)) for code in codes]
-    names = analysis.fetch_fund_names(codes)
-    table_rows = analysis.build_table_rows(analyses, names)
-
-    analysis.write_analysis_payloads(analyses, output_dir=DEFAULT_OUTPUT_DIR / "period_return_analysis")
-    analysis.write_table_json(table_rows, output_dir=DEFAULT_OUTPUT_DIR / "period_return_analysis")
-
-    curve_payloads: dict[str, list[dict[str, Any]]] = {}
-    for code in codes:
-        curve = analysis.build_one_month_curve(analysis.load_nav_rows(code))
-        analysis.write_one_month_curve_json(code, curve, output_dir=DEFAULT_OUTPUT_DIR / "one_month_analysis")
-        curve_payloads[code] = curve
+    payloads = analysis.collect_period_return_payloads(
+        config_path=DEFAULT_CONFIG_PATH,
+        output_dir=DEFAULT_OUTPUT_DIR,
+    )
+    table_rows = payloads["table_rows"]
+    curve_payloads = payloads["curve_payloads"]
 
     chart_path = chart.generate_one_month_return_chart(
         table_rows,
@@ -152,8 +147,7 @@ def main() -> int:
         output_dir=DEFAULT_OUTPUT_DIR,
     )
     chart_data_uri = png_to_data_uri(chart_path)
-    latest_dates = [datetime.fromisoformat(item["latest_date"]) for item in analyses]
-    as_of_label = max(latest_dates).strftime("%Y-%m-%d")
+    as_of_label = str(payloads["as_of_label"])
     html = build_period_return_email_html(table_rows, chart_data_uri, as_of_label)
     output_path = write_preview_html(html, DEFAULT_OUTPUT_DIR)
     print(f"[INFO] 预览已生成: {output_path.resolve()}")

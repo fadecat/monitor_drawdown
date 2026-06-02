@@ -50,7 +50,8 @@ def build_one_month_chart_series(
     series: list[dict[str, Any]] = []
     for index, row in enumerate(table_rows):
         code = row["code"]
-        curve = curve_payloads.get(code) or []
+        target_key = str(row.get("target_key") or code)
+        curve = curve_payloads.get(target_key) or curve_payloads.get(code) or []
         if not curve:
             continue
         points = [
@@ -101,6 +102,8 @@ def generate_one_month_return_chart(
 ) -> Path:
     configure_matplotlib_fonts()
     series = build_one_month_chart_series(table_rows, curve_payloads)
+    if not series:
+        raise ValueError("no one month chart series available")
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / "one_month_return_chart.png"
 

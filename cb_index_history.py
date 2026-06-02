@@ -85,3 +85,26 @@ def build_merged_history() -> tuple[list[dict[str, Any]], dict[str, int]]:
     history = load_history(MARKET_TEMPERATURE_HISTORY_JSON)
     live_records = parse_jisilu_page(fetch_cb_index_page())
     return merge_records(history, live_records)
+
+
+def build_runtime_merged_history() -> list[dict[str, Any]]:
+    merged, _ = build_merged_history()
+    return merged
+
+
+def build_runtime_index_series() -> list[dict[str, Any]]:
+    series: list[dict[str, Any]] = []
+    for record in build_runtime_merged_history():
+        row_date = str(record.get("date") or "").strip()
+        raw_value = record.get("index_value")
+        if not row_date or raw_value in (None, ""):
+            continue
+        series.append(
+            {
+                "date": row_date,
+                "value": float(raw_value),
+            }
+        )
+    if not series:
+        raise ValueError("empty cb index runtime series")
+    return series
