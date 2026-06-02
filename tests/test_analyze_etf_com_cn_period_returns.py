@@ -224,6 +224,47 @@ def test_load_period_return_email_codes_reads_codes_only_config(tmp_path: Path):
     assert codes == ["159934", "159941"]
 
 
+def test_load_nav_rows_downloads_when_local_sample_missing(monkeypatch, tmp_path: Path):
+    requested = {}
+
+    class FakeResponse:
+        def json(self):
+            return [
+                {"trdDt": "2026-04-29", "adjUnitNav": 1.0},
+                {"trdDt": "2026-05-29", "adjUnitNav": 1.1},
+            ]
+
+        def raise_for_status(self):
+            return None
+
+    class FakeSession:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def get(self, url, timeout):
+            requested["url"] = url
+            requested["timeout"] = timeout
+            return FakeResponse()
+
+    monkeypatch.setattr(module.requests, "Session", lambda: FakeSession())
+
+    rows = module.load_nav_rows("159934", sample_dir=tmp_path)
+
+    assert requested == {
+        "url": module.NAV_URL_TEMPLATE.format(code="159934"),
+        "timeout": module.REQUEST_TIMEOUT,
+    }
+    assert rows == [
+        {"trdDt": "2026-04-29", "adjUnitNav": 1.0},
+        {"trdDt": "2026-05-29", "adjUnitNav": 1.1},
+    ]
+    saved = json.loads((tmp_path / "etf_fund_nav_159934.json").read_text(encoding="utf-8"))
+    assert saved == rows
+
+
 def test_build_one_month_curve_uses_nearest_prior_trading_day():
     rows = [
         {"trdDt": "2026-04-28", "adjUnitNav": 0.98},

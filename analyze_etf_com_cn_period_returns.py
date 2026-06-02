@@ -14,6 +14,7 @@ SAMPLE_DIR = Path(".test_artifacts/etf_com_cn_api")
 OUTPUT_DIR = SAMPLE_DIR / "period_return_analysis"
 ONE_MONTH_OUTPUT_DIR = SAMPLE_DIR / "one_month_analysis"
 SIMPLE_LIST_URL = "https://www.etf.com.cn/api/etf-api-service/etf-funds/simpleList"
+NAV_URL_TEMPLATE = "https://cdn.efunds.com.cn/etf-net/etf_fund_nav_{code}.json"
 REQUEST_TIMEOUT = 15
 
 PERIOD_LABELS = {
@@ -76,7 +77,21 @@ def load_period_return_email_codes(config_path: Path) -> list[str]:
 
 def load_nav_rows(code: str, sample_dir: Path = SAMPLE_DIR) -> list[dict[str, Any]]:
     path = sample_dir / f"etf_fund_nav_{code}.json"
-    payload = json.loads(path.read_text(encoding="utf-8"))
+    if path.exists():
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    else:
+        sample_dir.mkdir(parents=True, exist_ok=True)
+        with requests.Session() as session:
+            response = session.get(
+                NAV_URL_TEMPLATE.format(code=code),
+                timeout=REQUEST_TIMEOUT,
+            )
+            response.raise_for_status()
+            payload = response.json()
+        path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
     if not isinstance(payload, list):
         raise ValueError(f"unexpected NAV payload type for {code}: {type(payload).__name__}")
     rows = [item for item in payload if isinstance(item, dict)]
