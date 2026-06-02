@@ -204,16 +204,77 @@ def test_fetch_fund_names_prefers_short_name_when_available(monkeypatch):
     assert names == {"159934": "黄金ETF易方达"}
 
 
-def test_load_period_return_email_codes_reads_codes_only_config(tmp_path: Path):
+def test_load_period_return_targets_reads_mixed_source_targets(tmp_path: Path):
     config_path = tmp_path / "period_return_email_config.yaml"
     config_path.write_text(
         "\n".join(
             [
-                "codes:",
-                "  - 159934",
-                "  - '159941'",
-                "  - 159934",
-                "  - ''",
+                "targets:",
+                "  - id: 159934",
+                "    source: etf_com_cn",
+                "    name: 黄金ETF易方达",
+                "  - id: '159941'",
+                "    source: etf_com_cn",
+                "    name: 纳指ETF广发",
+                "  - id: cb_equal_weight",
+                "    source: jisilu_cb_index",
+                "    name: 集思录转债等权",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    targets = module.load_period_return_targets(config_path)
+
+    assert targets == [
+        {"id": "159934", "source": "etf_com_cn", "name": "黄金ETF易方达"},
+        {"id": "159941", "source": "etf_com_cn", "name": "纳指ETF广发"},
+        {"id": "cb_equal_weight", "source": "jisilu_cb_index", "name": "集思录转债等权"},
+    ]
+
+
+def test_load_period_return_email_codes_filters_only_etf_targets(tmp_path: Path):
+    config_path = tmp_path / "period_return_email_config.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "targets:",
+                "  - id: 159934",
+                "    source: etf_com_cn",
+                "    name: 黄金ETF易方达",
+                "  - id: cb_equal_weight",
+                "    source: jisilu_cb_index",
+                "    name: 集思录转债等权",
+                "  - id: 159941",
+                "    source: etf_com_cn",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    codes = module.load_period_return_email_codes(config_path)
+
+    assert codes == ["159934", "159941"]
+
+
+def test_load_period_return_email_codes_deduplicates_and_preserves_order(tmp_path: Path):
+    config_path = tmp_path / "period_return_email_config.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "targets:",
+                "  - id: 159934",
+                "    source: etf_com_cn",
+                "  - id: cb_equal_weight",
+                "    source: jisilu_cb_index",
+                "    name: 集思录转债等权",
+                "  - id: 159934",
+                "    source: etf_com_cn",
+                "    name: 重复ETF应忽略",
+                "  - id: ''",
+                "    source: etf_com_cn",
+                "  - id: 159941",
+                "    source: etf_com_cn",
             ]
         ),
         encoding="utf-8",

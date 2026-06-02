@@ -58,21 +58,47 @@ def shift_years(value: date, years: int) -> date:
     return date(year, month, day)
 
 
-def load_period_return_email_codes(config_path: Path) -> list[str]:
+def load_period_return_targets(config_path: Path) -> list[dict[str, str]]:
     payload = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
-    codes = payload.get("codes") or []
-    if not isinstance(codes, list):
-        raise ValueError("period_return_email_config.yaml 中 codes 必须是列表")
+    targets = payload.get("targets") or []
+    if not isinstance(targets, list):
+        raise ValueError("period_return_email_config.yaml 中 targets 必须是列表")
 
-    normalized: list[str] = []
-    seen: set[str] = set()
-    for item in codes:
-        code = str(item).strip()
-        if not code or code in seen:
+    normalized: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for item in targets:
+        if not isinstance(item, dict):
             continue
-        normalized.append(code)
-        seen.add(code)
+        target_id = str(item.get("id") or "").strip()
+        source = str(item.get("source") or "").strip()
+        name = str(item.get("name") or "").strip()
+        dedupe_key = (target_id, source)
+        if not target_id or not source or dedupe_key in seen:
+            continue
+        normalized.append(
+            {
+                "id": target_id,
+                "source": source,
+                "name": name,
+            }
+        )
+        seen.add(dedupe_key)
     return normalized
+
+
+def load_period_return_email_codes(config_path: Path) -> list[str]:
+    targets = load_period_return_targets(config_path)
+    codes: list[str] = []
+    seen: set[str] = set()
+    for target in targets:
+        if target["source"] != "etf_com_cn":
+            continue
+        code = target["id"]
+        if code in seen:
+            continue
+        codes.append(code)
+        seen.add(code)
+    return codes
 
 
 def load_nav_rows(code: str, sample_dir: Path = SAMPLE_DIR) -> list[dict[str, Any]]:
