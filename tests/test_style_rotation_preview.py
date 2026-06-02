@@ -376,26 +376,30 @@ def test_chart_helpers_include_symbols_latest_date_and_spread():
     assert style_chart.SPREAD_LINE_WIDTH == 1.6
 
 
-def test_hide_last_x_tick_label_blanks_terminal_tick():
-    labels = ["2026-04-01", "2026-05-01", "2026-05-29"]
+def test_hide_matching_x_tick_labels_blanks_only_matching_label():
+    labels = ["2026-04-01", "2026-05-01", "2026-06-01"]
 
-    hidden = style_chart._hide_last_x_tick_label(labels)
+    hidden = style_chart._hide_matching_x_tick_labels(labels, "2026-06-01")
 
     assert hidden == ["2026-04-01", "2026-05-01", ""]
 
 
-def test_hide_last_tick_label_objects_hides_terminal_tick():
+def test_hide_matching_tick_label_objects_hides_only_matching_label():
     class FakeTick:
-        def __init__(self):
+        def __init__(self, text):
             self.visible = True
+            self.text = text
 
         def set_visible(self, value):
             self.visible = value
 
-    first = FakeTick()
-    last = FakeTick()
+        def get_text(self):
+            return self.text
 
-    style_chart._hide_last_tick_label_objects([first, last])
+    first = FakeTick("2026-05-01")
+    last = FakeTick("2026-06-01")
+
+    style_chart._hide_matching_tick_label_objects([first, last], "2026-06-01")
 
     assert first.visible is True
     assert last.visible is False

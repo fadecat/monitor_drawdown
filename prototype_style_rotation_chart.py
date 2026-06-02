@@ -113,6 +113,20 @@ def _build_latest_x_axis_label(payload: Mapping[str, Any]) -> str:
     return dates[-1].strftime("%Y-%m-%d")
 
 
+def _hide_matching_x_tick_labels(labels: list[str], target_label: str) -> list[str]:
+    output = list(labels)
+    for index, label in enumerate(output):
+        if label == target_label:
+            output[index] = ""
+    return output
+
+
+def _hide_matching_tick_label_objects(tick_labels: list[Any], target_label: str) -> None:
+    for tick_label in tick_labels:
+        if tick_label.get_text() == target_label:
+            tick_label.set_visible(False)
+
+
 def _hide_last_x_tick_label(labels: list[str]) -> list[str]:
     if not labels:
         return labels
@@ -192,7 +206,7 @@ def generate_style_rotation_chart(payload: dict[str, Any], output_dir: Path) -> 
         ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m-%d"))
         ax.yaxis.set_major_formatter(FuncFormatter(lambda value, _: f"{value:.2f}%"))
         fig.canvas.draw()
-        _hide_last_tick_label_objects(list(ax.get_xticklabels()))
+        _hide_matching_tick_label_objects(list(ax.get_xticklabels()), latest_x_axis_label)
 
         y_min = min(y_values)
         y_max = max(y_values)
