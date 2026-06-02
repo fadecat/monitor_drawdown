@@ -52,8 +52,11 @@ def parse_jisilu_page(body: str) -> list[dict[str, str]]:
     return records
 
 
-def load_history(path: Path = MARKET_TEMPERATURE_HISTORY_JSON) -> list[dict[str, Any]]:
-    return json.loads(path.read_text(encoding="utf-8"))
+def load_history(path: Path | None = None) -> list[dict[str, Any]]:
+    history_path = path or MARKET_TEMPERATURE_HISTORY_JSON
+    if not history_path.exists():
+        return []
+    return json.loads(history_path.read_text(encoding="utf-8"))
 
 
 def merge_records(
@@ -76,3 +79,9 @@ def merge_records(
 
     merged = [by_date[row_date] for row_date in sorted(by_date)]
     return merged, stats
+
+
+def build_merged_history() -> tuple[list[dict[str, Any]], dict[str, int]]:
+    history = load_history(MARKET_TEMPERATURE_HISTORY_JSON)
+    live_records = parse_jisilu_page(fetch_cb_index_page())
+    return merge_records(history, live_records)

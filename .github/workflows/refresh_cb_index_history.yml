@@ -1,0 +1,38 @@
+name: Refresh CB Index History
+
+on:
+  schedule:
+    - cron: "25 10 * * 1-5"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests pytest
+
+      - name: Refresh archive
+        run: python refresh_cb_index_history.py
+
+      - name: Commit changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add market_temperature_history.json
+          git diff --cached --quiet && exit 0
+          git commit -m "chore: refresh cb index history"
+          git push
