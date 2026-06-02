@@ -45,6 +45,33 @@ def test_build_period_return_email_html_uses_email_table_layout():
     assert "max-width:1180px" not in html
 
 
+def test_render_period_return_table_colors_positive_red_and_negative_green():
+    html = module.render_period_return_table(
+        [
+            {
+                "name": "黄金ETF易方达",
+                "code": "159934",
+                "return_1m": "-2.52%",
+                "return_3m": "11.18%",
+                "return_6m": "--",
+                "return_1y": "0.00%",
+                "return_ytd": "--",
+                "return_3y": "--",
+                "return_5y": "--",
+                "return_10y": "--",
+                "return_since_inception": "--",
+            }
+        ]
+    )
+
+    assert ">-2.52%</td>" in html
+    assert "color:#1a7f37" in html
+    assert ">11.18%</td>" in html
+    assert "color:#d92d20" in html
+    assert ">--</td>" in html
+    assert "color:#1f2937" in html
+
+
 def test_write_preview_outputs_html_file(tmp_path: Path):
     html = "<html><body>preview</body></html>"
 

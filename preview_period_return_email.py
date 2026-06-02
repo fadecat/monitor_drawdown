@@ -32,6 +32,23 @@ def png_to_data_uri(path: Path) -> str:
     return f"data:image/png;base64,{encoded}"
 
 
+def resolve_period_text_color(key: str, value: str) -> str:
+    if not key.startswith("return_"):
+        return "#1f2937"
+    text = value.strip()
+    if not text.endswith("%"):
+        return "#1f2937"
+    try:
+        number = float(text[:-1])
+    except ValueError:
+        return "#1f2937"
+    if number > 0:
+        return "#d92d20"
+    if number < 0:
+        return "#1a7f37"
+    return "#1f2937"
+
+
 def render_period_return_table(table_rows: list[dict[str, str]]) -> str:
     headers = [
         ("name", "名称"),
@@ -59,8 +76,10 @@ def render_period_return_table(table_rows: list[dict[str, str]]) -> str:
         cells = []
         for key, _ in headers:
             align = "left" if key == "name" else "right"
-            style = td_style + f";text-align:{align}"
-            cells.append(f'<td style="{style}">{escape(str(row.get(key, "--")))}</td>')
+            value = str(row.get(key, "--"))
+            color = resolve_period_text_color(key, value)
+            style = td_style + f";text-align:{align};color:{color}"
+            cells.append(f'<td style="{style}">{escape(value)}</td>')
         rows_html.append(f"<tr>{''.join(cells)}</tr>")
 
     header_html = "".join(
