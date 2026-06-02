@@ -1,4 +1,5 @@
 from pathlib import Path
+from unittest.mock import Mock
 
 import prototype_period_return_chart as module
 
@@ -40,6 +41,16 @@ def test_build_tail_label_text_includes_name_and_return():
     label = module.build_tail_label_text(item)
 
     assert label == "黄金ETF易方达 -2.52%"
+
+
+def test_configure_matplotlib_fonts_accepts_noto_cjk_jp(monkeypatch):
+    fake_font = Mock()
+    fake_font.name = "Noto Sans CJK JP"
+    monkeypatch.setattr(module.font_manager.fontManager, "ttflist", [fake_font])
+
+    module.configure_matplotlib_fonts()
+
+    assert "Noto Sans CJK JP" in module.plt.rcParams["font.sans-serif"]
 
 
 def test_generate_one_month_return_chart_creates_png(tmp_path: Path):

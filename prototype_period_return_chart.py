@@ -20,9 +20,12 @@ DEFAULT_COLORS = [
 ]
 
 PREFERRED_FONT_FAMILIES = [
+    "Noto Sans CJK SC",
+    "Noto Sans CJK JP",
     "Microsoft YaHei",
     "SimHei",
-    "Noto Sans CJK SC",
+    "PingFang SC",
+    "WenQuanYi Zen Hei",
     "Source Han Sans SC",
     "Arial Unicode MS",
 ]
@@ -34,9 +37,9 @@ def parse_display_return(value: str) -> float:
 
 def configure_matplotlib_fonts() -> None:
     available = {font.name for font in font_manager.fontManager.ttflist}
-    chosen = next((name for name in PREFERRED_FONT_FAMILIES if name in available), None)
-    if chosen:
-        plt.rcParams["font.sans-serif"] = [chosen]
+    selected = [name for name in PREFERRED_FONT_FAMILIES if name in available]
+    if selected:
+        plt.rcParams["font.sans-serif"] = selected + ["DejaVu Sans"]
     plt.rcParams["axes.unicode_minus"] = False
 
 
