@@ -83,6 +83,40 @@ def test_compute_period_returns_includes_expected_labels():
     }
 
 
+def test_compute_period_returns_from_series_uses_date_and_value():
+    rows = [
+        {"date": "2020-05-29", "value": 1.00},
+        {"date": "2023-05-29", "value": 1.20},
+        {"date": "2025-11-28", "value": 1.30},
+        {"date": "2026-02-27", "value": 1.40},
+        {"date": "2026-04-29", "value": 1.50},
+        {"date": "2026-05-29", "value": 1.65},
+    ]
+
+    result = module.compute_period_returns_from_series("cb_equal_weight", rows)
+
+    assert result == {
+        "code": "cb_equal_weight",
+        "latest_date": "2026-05-29",
+            "period_returns": {
+                "1m": {"label": "1m", "available": True, "base_date": "2026-04-29", "return_pct": 10.0},
+                "3m": {"label": "3m", "available": True, "base_date": "2026-02-27", "return_pct": 17.86},
+                "6m": {"label": "6m", "available": True, "base_date": "2025-11-28", "return_pct": 26.92},
+                "1y": {"label": "1y", "available": True, "base_date": "2023-05-29", "return_pct": 37.5},
+                "ytd": {"label": "ytd", "available": True, "base_date": "2026-02-27", "return_pct": 17.86},
+                "3y": {"label": "3y", "available": True, "base_date": "2023-05-29", "return_pct": 37.5},
+                "5y": {"label": "5y", "available": True, "base_date": "2020-05-29", "return_pct": 65.0},
+                "10y": {"label": "10y", "available": False, "base_date": None, "return_pct": None},
+                "since_inception": {
+                    "label": "since_inception",
+                    "available": True,
+                "base_date": "2020-05-29",
+                "return_pct": 65.0,
+            },
+        },
+    }
+
+
 def test_render_report_formats_unavailable_period_as_dashes(tmp_path: Path):
     analyses = [
         {
@@ -341,6 +375,93 @@ def test_build_one_month_curve_uses_nearest_prior_trading_day():
         {"date": "2026-04-30", "return_pct": 3.0},
         {"date": "2026-05-29", "return_pct": 10.0},
     ]
+
+
+def test_build_one_month_curve_from_series_uses_date_and_value():
+    rows = [
+        {"date": "2026-04-28", "value": 0.98},
+        {"date": "2026-04-29", "value": 1.00},
+        {"date": "2026-04-30", "value": 1.03},
+        {"date": "2026-05-29", "value": 1.10},
+    ]
+
+    curve = module.build_one_month_curve_from_series(rows)
+
+    assert curve == [
+        {"date": "2026-04-29", "return_pct": 0.0},
+        {"date": "2026-04-30", "return_pct": 3.0},
+        {"date": "2026-05-29", "return_pct": 10.0},
+    ]
+
+
+def test_compute_period_returns_wrapper_matches_series_analysis():
+    etf_rows = [
+        {"trdDt": "2020-05-29", "adjUnitNav": 1.00},
+        {"trdDt": "2023-05-29", "adjUnitNav": 1.20},
+        {"trdDt": "2025-11-28", "adjUnitNav": 1.30},
+        {"trdDt": "2026-02-27", "adjUnitNav": 1.40},
+        {"trdDt": "2026-04-29", "adjUnitNav": 1.50},
+        {"trdDt": "2026-05-29", "adjUnitNav": 1.65},
+    ]
+    series_rows = [
+        {"date": "2020-05-29", "value": 1.00},
+        {"date": "2023-05-29", "value": 1.20},
+        {"date": "2025-11-28", "value": 1.30},
+        {"date": "2026-02-27", "value": 1.40},
+        {"date": "2026-04-29", "value": 1.50},
+        {"date": "2026-05-29", "value": 1.65},
+    ]
+
+    wrapper_result = module.compute_period_returns("159999", etf_rows)
+    series_result = module.compute_period_returns_from_series("159999", series_rows)
+
+    assert wrapper_result == series_result
+
+
+def test_compute_period_returns_wrapper_matches_series_when_history_is_insufficient():
+    etf_rows = [
+        {"trdDt": "2026-05-10", "adjUnitNav": 1.00},
+        {"trdDt": "2026-05-29", "adjUnitNav": 1.10},
+    ]
+    series_rows = [
+        {"date": "2026-05-10", "value": 1.00},
+        {"date": "2026-05-29", "value": 1.10},
+    ]
+
+    wrapper_result = module.compute_period_returns("159999", etf_rows)
+    series_result = module.compute_period_returns_from_series("159999", series_rows)
+
+    assert wrapper_result == series_result
+    assert wrapper_result["period_returns"]["3m"] == {
+        "label": "3m",
+        "available": False,
+        "base_date": None,
+        "return_pct": None,
+    }
+
+
+def test_compute_period_returns_wrapper_matches_series_for_ytd_first_trading_day_fallback():
+    etf_rows = [
+        {"trdDt": "2025-12-30", "adjUnitNav": 0.90},
+        {"trdDt": "2026-01-06", "adjUnitNav": 1.00},
+        {"trdDt": "2026-05-29", "adjUnitNav": 1.10},
+    ]
+    series_rows = [
+        {"date": "2025-12-30", "value": 0.90},
+        {"date": "2026-01-06", "value": 1.00},
+        {"date": "2026-05-29", "value": 1.10},
+    ]
+
+    wrapper_result = module.compute_period_returns("159999", etf_rows)
+    series_result = module.compute_period_returns_from_series("159999", series_rows)
+
+    assert wrapper_result == series_result
+    assert wrapper_result["period_returns"]["ytd"] == {
+        "label": "ytd",
+        "available": True,
+        "base_date": "2026-01-06",
+        "return_pct": 10.0,
+    }
 
 
 def test_build_table_rows_formats_display_values():

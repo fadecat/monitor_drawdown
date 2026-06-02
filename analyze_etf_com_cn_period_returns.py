@@ -126,15 +126,36 @@ def load_nav_rows(code: str, sample_dir: Path = SAMPLE_DIR) -> list[dict[str, An
     return rows
 
 
-def select_base_record(rows: list[dict[str, Any]], target_date: date) -> dict[str, Any] | None:
+def normalize_etf_nav_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        {
+            "date": str(row["trdDt"]),
+            "value": float(row["adjUnitNav"]),
+        }
+        for row in rows
+    ]
+
+
+def select_base_series_record(rows: list[dict[str, Any]], target_date: date) -> dict[str, Any] | None:
     chosen = None
     for row in rows:
-        row_date = date.fromisoformat(str(row["trdDt"]))
+        row_date = date.fromisoformat(str(row["date"]))
         if row_date <= target_date:
             chosen = row
         else:
             break
     return chosen
+
+
+def select_base_record(rows: list[dict[str, Any]], target_date: date) -> dict[str, Any] | None:
+    normalized_rows = normalize_etf_nav_rows(rows)
+    base_row = select_base_series_record(normalized_rows, target_date)
+    if base_row is None:
+        return None
+    return {
+        "trdDt": base_row["date"],
+        "adjUnitNav": base_row["value"],
+    }
 
 
 def compute_period_return(rows: list[dict[str, Any]], label: str, target_date: date) -> dict[str, Any]:
@@ -161,7 +182,6 @@ def compute_period_return(rows: list[dict[str, Any]], label: str, target_date: d
 
 def compute_ytd_return(rows: list[dict[str, Any]]) -> dict[str, Any]:
     latest_date = date.fromisoformat(str(rows[-1]["trdDt"]))
-    first_of_year = date(latest_date.year, 1, 1)
     first_row_in_year = next(
         (row for row in rows if date.fromisoformat(str(row["trdDt"])).year == latest_date.year),
         None,
@@ -174,7 +194,7 @@ def compute_ytd_return(rows: list[dict[str, Any]]) -> dict[str, Any]:
             "return_pct": None,
         }
 
-    base_row = select_base_record(rows, first_of_year) or first_row_in_year
+    base_row = first_row_in_year
     latest_nav = float(rows[-1]["adjUnitNav"])
     base_nav = float(base_row["adjUnitNav"])
     return {
@@ -198,32 +218,8 @@ def compute_since_inception_return(rows: list[dict[str, Any]]) -> dict[str, Any]
     }
 
 
-def build_one_month_curve(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    latest_date = date.fromisoformat(str(rows[-1]["trdDt"]))
-    start_date = shift_months(latest_date, 1)
-    base_row = select_base_record(rows, start_date)
-    if base_row is None:
-        return []
-
-    base_date = date.fromisoformat(str(base_row["trdDt"]))
-    base_nav = float(base_row["adjUnitNav"])
-    curve: list[dict[str, Any]] = []
-    for row in rows:
-        row_date = date.fromisoformat(str(row["trdDt"]))
-        if row_date < base_date:
-            continue
-        return_pct = round((float(row["adjUnitNav"]) / base_nav - 1) * 100, 2)
-        curve.append(
-            {
-                "date": str(row["trdDt"]),
-                "return_pct": return_pct,
-            }
-        )
-    return curve
-
-
-def compute_period_returns(code: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
-    latest_date = date.fromisoformat(str(rows[-1]["trdDt"]))
+def compute_period_returns_from_series(code: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
+    latest_date = date.fromisoformat(str(rows[-1]["date"]))
     target_builders: dict[str, Callable[[date], date]] = {
         "1m": lambda current: shift_months(current, 1),
         "3m": lambda current: shift_months(current, 3),
@@ -234,12 +230,59 @@ def compute_period_returns(code: str, rows: list[dict[str, Any]]) -> dict[str, A
         "10y": lambda current: shift_years(current, 10),
     }
 
+    latest_value = float(rows[-1]["value"])
+
+    def build_period_return(label: str, target_date: date) -> dict[str, Any]:
+        base_row = select_base_series_record(rows, target_date)
+        if base_row is None:
+            return {
+                "label": label,
+                "available": False,
+                "base_date": None,
+                "return_pct": None,
+            }
+
+        base_value = float(base_row["value"])
+        return {
+            "label": label,
+            "available": True,
+            "base_date": str(base_row["date"]),
+            "return_pct": round((latest_value / base_value - 1) * 100, 2),
+        }
+
     period_returns = {
-        label: compute_period_return(rows, label, builder(latest_date))
+        label: build_period_return(label, builder(latest_date))
         for label, builder in target_builders.items()
     }
-    period_returns["ytd"] = compute_ytd_return(rows)
-    period_returns["since_inception"] = compute_since_inception_return(rows)
+
+    first_row_in_year = next(
+        (row for row in rows if date.fromisoformat(str(row["date"])).year == latest_date.year),
+        None,
+    )
+    if first_row_in_year is None:
+        period_returns["ytd"] = {
+            "label": "ytd",
+            "available": False,
+            "base_date": None,
+            "return_pct": None,
+        }
+    else:
+        base_row = first_row_in_year
+        base_value = float(base_row["value"])
+        period_returns["ytd"] = {
+            "label": "ytd",
+            "available": True,
+            "base_date": str(base_row["date"]),
+            "return_pct": round((latest_value / base_value - 1) * 100, 2),
+        }
+
+    inception_row = rows[0]
+    period_returns["since_inception"] = {
+        "label": "since_inception",
+        "available": True,
+        "base_date": str(inception_row["date"]),
+        "return_pct": round((latest_value / float(inception_row["value"]) - 1) * 100, 2),
+    }
 
     ordered_period_returns = {
         key: period_returns[key]
@@ -247,9 +290,41 @@ def compute_period_returns(code: str, rows: list[dict[str, Any]]) -> dict[str, A
     }
     return {
         "code": code,
-        "latest_date": str(rows[-1]["trdDt"]),
+        "latest_date": str(rows[-1]["date"]),
         "period_returns": ordered_period_returns,
     }
+
+
+def build_one_month_curve_from_series(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    latest_date = date.fromisoformat(str(rows[-1]["date"]))
+    start_date = shift_months(latest_date, 1)
+    base_row = select_base_series_record(rows, start_date)
+    if base_row is None:
+        return []
+
+    base_date = date.fromisoformat(str(base_row["date"]))
+    base_value = float(base_row["value"])
+    curve: list[dict[str, Any]] = []
+    for row in rows:
+        row_date = date.fromisoformat(str(row["date"]))
+        if row_date < base_date:
+            continue
+        return_pct = round((float(row["value"]) / base_value - 1) * 100, 2)
+        curve.append(
+            {
+                "date": str(row["date"]),
+                "return_pct": return_pct,
+            }
+        )
+    return curve
+
+
+def build_one_month_curve(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return build_one_month_curve_from_series(normalize_etf_nav_rows(rows))
+
+
+def compute_period_returns(code: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
+    return compute_period_returns_from_series(code, normalize_etf_nav_rows(rows))
 
 
 def format_period_value(period: dict[str, Any]) -> str:
