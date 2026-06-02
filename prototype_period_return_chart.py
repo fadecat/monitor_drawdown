@@ -11,12 +11,14 @@ from matplotlib.ticker import FuncFormatter
 
 
 DEFAULT_COLORS = [
-    "#1558D6",
-    "#6BA6FF",
-    "#D69A00",
-    "#F3B55D",
-    "#E35B1F",
-    "#F08B57",
+    "#2563EB",
+    "#DC2626",
+    "#16A34A",
+    "#7C3AED",
+    "#EA580C",
+    "#0891B2",
+    "#A16207",
+    "#DB2777",
 ]
 
 PREFERRED_FONT_FAMILIES = [

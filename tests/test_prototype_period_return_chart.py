@@ -36,6 +36,24 @@ def test_build_one_month_chart_series_prefers_target_key_when_present():
     assert [(item["name"], item["last_return_pct"]) for item in series] == [("A", -2.52), ("B", 1.18)]
 
 
+def test_build_one_month_chart_series_uses_distinct_palette_for_first_seven_series():
+    table_rows = [
+        {"name": f"标的{i}", "code": f"{i:03d}", "return_1m": f"{i}.00%"}
+        for i in range(7)
+    ]
+    curve_payloads = {
+        f"{i:03d}": [{"date": "2026-04-29", "return_pct": 0.0}, {"date": "2026-05-29", "return_pct": float(i)}]
+        for i in range(7)
+    }
+
+    series = module.build_one_month_chart_series(table_rows, curve_payloads)
+
+    colors = [item["color"] for item in series]
+    assert len(set(colors)) == 7
+    assert "#1558D6" not in colors
+    assert "#6BA6FF" not in colors
+
+
 def test_compute_label_positions_separates_close_values():
     values = [-2.52, -2.4, -2.35, 0.51, 0.6]
 
