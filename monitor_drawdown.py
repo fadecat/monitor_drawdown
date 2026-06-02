@@ -1097,13 +1097,6 @@ def fetch_etf_data(code: str, start_date: str, end_date: str) -> pd.DataFrame:
 def fetch_index_data(code: str, start_date: str, end_date: str) -> pd.DataFrame:
     errors: List[str] = []
 
-    # 首选源: 易方达指数 EOD JSON（对多数指数代码更稳定）
-    try:
-        return fetch_index_eod_price_data(code, start_date, end_date)
-    except Exception as exc:  # noqa: BLE001
-        errors.append(f"index_eod_price({code}): {exc}")
-        print(f"[WARN] 指数 EOD 数据源失败，准备尝试 TickFlow/AkShare: {exc}")
-
     tickflow_symbols = build_tickflow_index_symbols(code)
     if tickflow_symbols:
         try:

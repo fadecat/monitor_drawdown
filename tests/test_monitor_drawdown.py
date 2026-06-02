@@ -91,12 +91,6 @@ def test_fetch_etf_data_prefers_tickflow(monkeypatch):
 
 
 def test_fetch_index_data_falls_back_to_akshare(monkeypatch):
-    monkeypatch.setattr(
-        md.requests,
-        "get",
-        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("EOD source unavailable")),
-    )
-
     empty_tickflow_df = pd.DataFrame(columns=["trade_date", "close"])
     akshare_df = pd.DataFrame(
         {
@@ -118,16 +112,28 @@ def test_fetch_index_data_falls_back_to_akshare(monkeypatch):
     assert result["close"].tolist() == [4567.018, 4417.997]
 
 
-def test_fetch_index_data_prefers_efunds_eod_price(monkeypatch):
-    eod_rows = [
-        {"trdDt": "2026-03-20", "pxClose": 4567.018, "trdCode": "930955"},
-        {"trdDt": "2026-03-23", "pxClose": 4417.997, "trdCode": "930955"},
-    ]
-    monkeypatch.setattr(md.requests, "get", lambda *args, **kwargs: FakeResponse(eod_rows))
+def test_fetch_index_data_prefers_tickflow(monkeypatch):
+    tickflow_df = pd.DataFrame(
+        {
+            "trade_date": ["2026-03-20", "2026-03-23"],
+            "close": [4567.018, 4417.997],
+        }
+    )
+    eod_calls = []
+
+    def fake_fetch_index_eod_price_data(*args, **kwargs):
+        eod_calls.append((args, kwargs))
+        raise RuntimeError("EOD should not be called")
+
     monkeypatch.setattr(
         md,
-        "fetch_tickflow_klines",
-        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("TickFlow should not be called")),
+        "fetch_index_eod_price_data",
+        fake_fetch_index_eod_price_data,
+    )
+    monkeypatch.setattr(
+        md,
+        "build_tickflow_client",
+        lambda: FakeTickFlowClient({"930955.SH": tickflow_df}),
     )
     monkeypatch.setattr(
         md.ak,
@@ -140,6 +146,7 @@ def test_fetch_index_data_prefers_efunds_eod_price(monkeypatch):
 
     assert result["date"].dt.strftime("%Y-%m-%d").tolist() == ["2026-03-20", "2026-03-23"]
     assert result["close"].tolist() == [4567.018, 4417.997]
+    assert eod_calls == []
 
 
 def test_find_jisilu_index_etf_candidates_matches_index_id():

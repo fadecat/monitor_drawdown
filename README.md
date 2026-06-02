@@ -163,6 +163,34 @@ python .\preview_webhook_message.py --simulate-missing-today
 - 生成 [`preview_webhook_message.md`](/C:/Users/han/桌面/code/monitor_drawdown/preview_webhook_message.md)
 - 生成本地日志文件 `preview_webhook_run.log`
 
+## 风格轮动本地预览
+
+如果你想先在本地生成风格轮动预览图，可以直接运行：
+
+```powershell
+python .\preview_style_rotation_chart.py
+```
+
+默认会输出到 `.\.test_artifacts\style_rotation_preview\style_rotation_preview.png`。
+
+如果你想先预览邮件样式、不实际发信，可以运行：
+
+```powershell
+python .\preview_style_rotation_email.py
+```
+
+默认会输出到 `.\.test_artifacts\style_rotation_email\preview_style_rotation_email.html`。
+
+如果你已经配置好邮件环境变量，也可以直接发送风格轮动日报：
+
+```powershell
+python .\send_style_rotation_email.py
+```
+
+该脚本会先生成最新风格轮动图，再通过 SMTP 发送一封内嵌 PNG 的 HTML 邮件。
+
+对应的 GitHub Actions workflow 为 `.github/workflows/style_rotation_email.yml`，默认在交易日收盘后触发。
+
 安装依赖：
 
 ```powershell
