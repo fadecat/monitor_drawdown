@@ -191,6 +191,33 @@ python .\send_style_rotation_email.py
 
 对应的 GitHub Actions workflow 为 `.github/workflows/style_rotation_email.yml`，默认在交易日收盘后触发。
 
+如果你想用 ETF 版本的风格轮动固定标的：
+
+- 左侧：`159259` `成长ETF易方达`
+- 右侧：`159263` `价值ETF易方达`
+- 默认计算窗口：`40` 个交易日
+- 默认展示窗口：`180` 个交易日（当前历史不足时会自然显示可用区间）
+
+本地预览图：
+
+```powershell
+python .\preview_style_rotation_etf_chart.py
+```
+
+本地预览邮件：
+
+```powershell
+python .\preview_style_rotation_etf_email.py
+```
+
+真实发送：
+
+```powershell
+python .\send_style_rotation_etf_email.py
+```
+
+对应的 GitHub Actions workflow 为 `.github/workflows/style_rotation_etf_email.yml`。
+
 安装依赖：
 
 ```powershell

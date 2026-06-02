@@ -194,6 +194,51 @@ def test_collect_style_rotation_preview_payload_uses_fixed_symbols(monkeypatch):
     assert set(payload["series"].keys()) == {"dates", "left_return", "right_return", "spread"}
 
 
+def test_fetch_etf_history_uses_etf_com_nav_rows(monkeypatch):
+    monkeypatch.setattr(
+        srp.etf_analysis,
+        "load_nav_rows",
+        lambda symbol: [
+            {"trdDt": "2026-03-20", "adjUnitNav": "1.0234"},
+            {"trdDt": "2026-03-21", "adjUnitNav": "1.0456"},
+            {"trdDt": "2026-03-21", "adjUnitNav": "1.0500"},
+        ],
+    )
+
+    result = srp.fetch_etf_history("159263")
+
+    assert result["date"].dt.strftime("%Y-%m-%d").tolist() == ["2026-03-20", "2026-03-21"]
+    assert result["close"].tolist() == [1.0234, 1.05]
+
+
+def test_collect_etf_style_rotation_preview_payload_uses_fixed_symbols(monkeypatch):
+    calls = []
+
+    def fake_fetch_etf_history(symbol: str) -> pd.DataFrame:
+        calls.append(symbol)
+        return pd.DataFrame(
+            {
+                "date": pd.to_datetime(["2026-01-01", "2026-01-02", "2026-01-03"]),
+                "close": [1.0, 1.1, 1.2],
+            }
+        )
+
+    monkeypatch.setattr(srp, "fetch_etf_history", fake_fetch_etf_history)
+
+    payload = srp.collect_etf_style_rotation_preview_payload(return_window_days=1, display_window_days=2)
+
+    assert calls == [srp.FIXED_ETF_LEFT_SYMBOL, srp.FIXED_ETF_RIGHT_SYMBOL]
+    assert payload["meta"] == {
+        "left_symbol": srp.FIXED_ETF_LEFT_SYMBOL,
+        "left_name": srp.FIXED_ETF_LEFT_NAME,
+        "right_symbol": srp.FIXED_ETF_RIGHT_SYMBOL,
+        "right_name": srp.FIXED_ETF_RIGHT_NAME,
+        "return_window_days": 1,
+        "display_window_days": 2,
+    }
+    assert set(payload["series"].keys()) == {"dates", "left_return", "right_return", "spread"}
+
+
 def test_fetch_index_history_uses_monitor_drawdown_fetch_index_data(monkeypatch):
     calls = []
 
@@ -329,6 +374,31 @@ def test_chart_helpers_include_symbols_latest_date_and_spread():
     )
     assert style_chart._build_latest_x_axis_label(payload) == "2026-06-02"
     assert style_chart.SPREAD_LINE_WIDTH == 1.6
+
+
+def test_hide_last_x_tick_label_blanks_terminal_tick():
+    labels = ["2026-04-01", "2026-05-01", "2026-05-29"]
+
+    hidden = style_chart._hide_last_x_tick_label(labels)
+
+    assert hidden == ["2026-04-01", "2026-05-01", ""]
+
+
+def test_hide_last_tick_label_objects_hides_terminal_tick():
+    class FakeTick:
+        def __init__(self):
+            self.visible = True
+
+        def set_visible(self, value):
+            self.visible = value
+
+    first = FakeTick()
+    last = FakeTick()
+
+    style_chart._hide_last_tick_label_objects([first, last])
+
+    assert first.visible is True
+    assert last.visible is False
 
 
 def test_generate_style_rotation_chart_creates_png(tmp_path):

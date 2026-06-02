@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import analyze_etf_com_cn_period_returns as etf_analysis
 import pandas as pd
 import monitor_drawdown as md
 
@@ -12,6 +13,13 @@ FIXED_RIGHT_SYMBOL = "399373"
 FIXED_RIGHT_NAME = "国证大盘价值"
 DEFAULT_RETURN_WINDOW_DAYS = 250
 DEFAULT_DISPLAY_WINDOW_DAYS = 252
+
+FIXED_ETF_LEFT_SYMBOL = "159259"
+FIXED_ETF_LEFT_NAME = "成长ETF易方达"
+FIXED_ETF_RIGHT_SYMBOL = "159263"
+FIXED_ETF_RIGHT_NAME = "价值ETF易方达"
+DEFAULT_ETF_RETURN_WINDOW_DAYS = 40
+DEFAULT_ETF_DISPLAY_WINDOW_DAYS = 180
 
 
 def normalize_price_frame(df: pd.DataFrame) -> pd.DataFrame:
@@ -81,10 +89,13 @@ def build_style_rotation_preview_payload(
     *,
     left_df: pd.DataFrame,
     right_df: pd.DataFrame,
+    left_symbol: str = FIXED_LEFT_SYMBOL,
+    left_name: str = FIXED_LEFT_NAME,
+    right_symbol: str = FIXED_RIGHT_SYMBOL,
+    right_name: str = FIXED_RIGHT_NAME,
     return_window_days: int = DEFAULT_RETURN_WINDOW_DAYS,
     display_window_days: int = DEFAULT_DISPLAY_WINDOW_DAYS,
 ) -> dict[str, Any]:
-    """固定标的预览 payload 装配器；meta 故意绑定固定常量，避免误用。"""
     preview = calculate_style_rotation_preview(
         left_df=left_df,
         right_df=right_df,
@@ -93,10 +104,10 @@ def build_style_rotation_preview_payload(
     )
     return {
         "meta": {
-            "left_symbol": FIXED_LEFT_SYMBOL,
-            "left_name": FIXED_LEFT_NAME,
-            "right_symbol": FIXED_RIGHT_SYMBOL,
-            "right_name": FIXED_RIGHT_NAME,
+            "left_symbol": left_symbol,
+            "left_name": left_name,
+            "right_symbol": right_symbol,
+            "right_name": right_name,
             "return_window_days": return_window_days,
             "display_window_days": display_window_days,
         },
@@ -117,6 +128,20 @@ def fetch_index_history(symbol: str) -> pd.DataFrame:
     return normalized
 
 
+def fetch_etf_history(symbol: str) -> pd.DataFrame:
+    rows = etf_analysis.load_nav_rows(symbol)
+    frame = pd.DataFrame(
+        {
+            "date": [row.get("trdDt") for row in rows],
+            "close": [row.get("adjUnitNav") for row in rows],
+        }
+    )
+    normalized = normalize_price_frame(frame)
+    if normalized.empty:
+        raise RuntimeError(f"ETF 历史数据规范化后为空: {symbol}")
+    return normalized
+
+
 def collect_style_rotation_preview_payload(
     *,
     return_window_days: int = DEFAULT_RETURN_WINDOW_DAYS,
@@ -127,6 +152,29 @@ def collect_style_rotation_preview_payload(
     return build_style_rotation_preview_payload(
         left_df=left_df,
         right_df=right_df,
+        left_symbol=FIXED_LEFT_SYMBOL,
+        left_name=FIXED_LEFT_NAME,
+        right_symbol=FIXED_RIGHT_SYMBOL,
+        right_name=FIXED_RIGHT_NAME,
+        return_window_days=return_window_days,
+        display_window_days=display_window_days,
+    )
+
+
+def collect_etf_style_rotation_preview_payload(
+    *,
+    return_window_days: int = DEFAULT_ETF_RETURN_WINDOW_DAYS,
+    display_window_days: int = DEFAULT_ETF_DISPLAY_WINDOW_DAYS,
+) -> dict[str, Any]:
+    left_df = fetch_etf_history(FIXED_ETF_LEFT_SYMBOL)
+    right_df = fetch_etf_history(FIXED_ETF_RIGHT_SYMBOL)
+    return build_style_rotation_preview_payload(
+        left_df=left_df,
+        right_df=right_df,
+        left_symbol=FIXED_ETF_LEFT_SYMBOL,
+        left_name=FIXED_ETF_LEFT_NAME,
+        right_symbol=FIXED_ETF_RIGHT_SYMBOL,
+        right_name=FIXED_ETF_RIGHT_NAME,
         return_window_days=return_window_days,
         display_window_days=display_window_days,
     )

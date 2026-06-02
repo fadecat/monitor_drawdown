@@ -113,6 +113,20 @@ def _build_latest_x_axis_label(payload: Mapping[str, Any]) -> str:
     return dates[-1].strftime("%Y-%m-%d")
 
 
+def _hide_last_x_tick_label(labels: list[str]) -> list[str]:
+    if not labels:
+        return labels
+    output = list(labels)
+    output[-1] = ""
+    return output
+
+
+def _hide_last_tick_label_objects(tick_labels: list[Any]) -> None:
+    if not tick_labels:
+        return
+    tick_labels[-1].set_visible(False)
+
+
 def generate_style_rotation_chart(payload: dict[str, Any], output_dir: Path) -> Path:
     configure_matplotlib_fonts()
 
@@ -177,6 +191,8 @@ def generate_style_rotation_chart(payload: dict[str, Any], output_dir: Path) -> 
         ax.xaxis.set_major_locator(mdates.AutoDateLocator(minticks=4, maxticks=7))
         ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m-%d"))
         ax.yaxis.set_major_formatter(FuncFormatter(lambda value, _: f"{value:.2f}%"))
+        fig.canvas.draw()
+        _hide_last_tick_label_objects(list(ax.get_xticklabels()))
 
         y_min = min(y_values)
         y_max = max(y_values)
