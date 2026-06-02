@@ -15,8 +15,12 @@ env/
 
 # Tooling caches
 .pytest_cache/
+.pytest_tmp/
+tmp-pytest/
+.codex_tmp/
 .test_artifacts/
 .email_chart_cache/
+data_cache/
 datacache/
 .mypy_cache/
 .ruff_cache/
@@ -31,6 +35,14 @@ datacache/
 preview_webhook_payload.json
 preview_webhook_message.md
 email_preview_with_charts.html
+email_preview.html
+email_preview_gemini.html
+email_preview_gemini_applied.html
+email_preview_ratio.html
+Snipaste_*.png
+*.jpg
+tests/*.jpg
+tests/image.png
 
 # IDE / editor
 .vscode/
