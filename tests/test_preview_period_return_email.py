@@ -30,7 +30,7 @@ def test_build_period_return_email_html_places_chart_before_table():
     assert "近1月" in html
     assert "成立以来" in html
     assert html.index("data:image/png;base64,abc") < html.index("区间收益率表格")
-    assert html.index('alt="近1月收益率走势图"') < html.index("名称")
+    assert html.index('alt="近1月收益率走势图"') < html.index("标的")
 
 
 def test_build_period_return_email_html_uses_email_table_layout():
@@ -70,6 +70,48 @@ def test_render_period_return_table_colors_positive_red_and_negative_green():
     assert "color:#d92d20" in html
     assert ">--</td>" in html
     assert "color:#1f2937" in html
+
+
+def test_render_period_return_table_merges_name_and_code_and_hides_internal_code():
+    html = module.render_period_return_table(
+        [
+            {
+                "target_key": "etf_com_cn:159934",
+                "name": "黄金ETF易方达",
+                "code": "159934",
+                "return_1m": "-2.52%",
+                "return_3m": "--",
+                "return_6m": "--",
+                "return_1y": "--",
+                "return_ytd": "--",
+                "return_3y": "--",
+                "return_5y": "--",
+                "return_10y": "--",
+                "return_since_inception": "--",
+            },
+            {
+                "target_key": "jisilu_cb_index:cb_equal_weight",
+                "name": "集思录转债等权",
+                "code": "cb_equal_weight",
+                "return_1m": "1.00%",
+                "return_3m": "--",
+                "return_6m": "--",
+                "return_1y": "--",
+                "return_ytd": "--",
+                "return_3y": "--",
+                "return_5y": "--",
+                "return_10y": "--",
+                "return_since_inception": "--",
+            },
+        ]
+    )
+
+    assert "标的" in html
+    assert "代码" not in html
+    assert "黄金ETF易方达" in html
+    assert "159934" in html
+    assert "集思录转债等权" in html
+    assert "cb_equal_weight" not in html
 
 
 def test_write_preview_outputs_html_file(tmp_path: Path):

@@ -49,10 +49,21 @@ def resolve_period_text_color(key: str, value: str) -> str:
     return "#1f2937"
 
 
+def render_target_cell(row: dict[str, str]) -> str:
+    name = escape(str(row.get("name", "--")))
+    target_key = str(row.get("target_key") or "")
+    code = str(row.get("code") or "").strip()
+    if target_key.startswith("etf_com_cn:") and code:
+        return (
+            f'<div style="font-weight:600;color:#152033">{name}</div>'
+            f'<div style="margin-top:4px;font-size:12px;color:#98a2b3">{escape(code)}</div>'
+        )
+    return f'<div style="font-weight:600;color:#152033">{name}</div>'
+
+
 def render_period_return_table(table_rows: list[dict[str, str]]) -> str:
     headers = [
-        ("name", "名称"),
-        ("code", "代码"),
+        ("target", "标的"),
         ("return_1m", "近1月"),
         ("return_3m", "近3月"),
         ("return_6m", "近6月"),
@@ -75,7 +86,11 @@ def render_period_return_table(table_rows: list[dict[str, str]]) -> str:
     for row in table_rows:
         cells = []
         for key, _ in headers:
-            align = "left" if key == "name" else "right"
+            align = "left" if key == "target" else "right"
+            if key == "target":
+                style = td_style + f";text-align:{align};color:#1f2937"
+                cells.append(f'<td style="{style}">{render_target_cell(row)}</td>')
+                continue
             value = str(row.get(key, "--"))
             color = resolve_period_text_color(key, value)
             style = td_style + f";text-align:{align};color:{color}"
