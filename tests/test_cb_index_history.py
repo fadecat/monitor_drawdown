@@ -1,4 +1,5 @@
 import json
+import os
 
 import cb_index_history as module
 import refresh_cb_index_history as refresh_module
@@ -159,3 +160,30 @@ def test_refresh_main_writes_archive_successfully_on_first_run(monkeypatch, tmp_
     assert result == 0
     assert archive_path.read_text(encoding="utf-8") == json.dumps(merged, ensure_ascii=False, indent=2) + "\n"
     assert "[INFO] 归档已更新" in capsys.readouterr().out
+
+
+def test_build_refresh_webhook_payload_formats_stats():
+    payload = refresh_module.build_refresh_webhook_payload(
+        stats={"history": 1968, "updated": 171, "added": 71},
+        changed=True,
+        latest_date="2026-06-01",
+    )
+
+    assert payload["msgtype"] == "markdown"
+    content = payload["markdown"]["content"]
+    assert "转债等权历史归档完成" in content
+    assert "updated: `171`" in content
+    assert "added: `71`" in content
+    assert "latest: `2026-06-01`" in content
+
+
+def test_notify_refresh_webhook_skips_when_env_missing(monkeypatch, capsys):
+    monkeypatch.delenv("CB_INDEX_REFRESH_WEBHOOK_URL", raising=False)
+
+    refresh_module.notify_refresh_webhook(
+        stats={"history": 0, "updated": 0, "added": 0},
+        changed=False,
+        latest_date=None,
+    )
+
+    assert "未配置 CB_INDEX_REFRESH_WEBHOOK_URL" in capsys.readouterr().out

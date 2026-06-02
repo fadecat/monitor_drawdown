@@ -26,6 +26,8 @@ jobs:
           pip install requests pytest
 
       - name: Refresh archive
+        env:
+          CB_INDEX_REFRESH_WEBHOOK_URL: ${{ secrets.CB_INDEX_REFRESH_WEBHOOK_URL }}
         run: python refresh_cb_index_history.py
 
       - name: Commit changes
