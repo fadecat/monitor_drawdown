@@ -11,7 +11,6 @@ def test_load_period_return_targets_deduplicates_and_skips_empty_values(tmp_path
                 "targets:",
                 "  - id: '159934'",
                 "    source: etf_com_cn",
-                "    name: 黄金ETF易方达",
                 "  - id: '159934'",
                 "    source: etf_com_cn",
                 "    name: 重复项应忽略",
@@ -36,7 +35,7 @@ def test_load_period_return_targets_deduplicates_and_skips_empty_values(tmp_path
     targets = module.load_period_return_targets(config_path)
 
     assert targets == [
-        {"id": "159934", "source": "etf_com_cn", "name": "黄金ETF易方达"},
+        {"id": "159934", "source": "etf_com_cn", "name": ""},
         {"id": "cb_equal_weight", "source": "jisilu_cb_index", "name": "集思录转债等权"},
     ]
 

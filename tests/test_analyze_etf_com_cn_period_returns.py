@@ -246,10 +246,8 @@ def test_load_period_return_targets_reads_mixed_source_targets(tmp_path: Path):
                 "targets:",
                 "  - id: 159934",
                 "    source: etf_com_cn",
-                "    name: 黄金ETF易方达",
                 "  - id: '159941'",
                 "    source: etf_com_cn",
-                "    name: 纳指ETF广发",
                 "  - id: cb_equal_weight",
                 "    source: jisilu_cb_index",
                 "    name: 集思录转债等权",
@@ -261,8 +259,8 @@ def test_load_period_return_targets_reads_mixed_source_targets(tmp_path: Path):
     targets = module.load_period_return_targets(config_path)
 
     assert targets == [
-        {"id": "159934", "source": "etf_com_cn", "name": "黄金ETF易方达"},
-        {"id": "159941", "source": "etf_com_cn", "name": "纳指ETF广发"},
+        {"id": "159934", "source": "etf_com_cn", "name": ""},
+        {"id": "159941", "source": "etf_com_cn", "name": ""},
         {"id": "cb_equal_weight", "source": "jisilu_cb_index", "name": "集思录转债等权"},
     ]
 
@@ -275,7 +273,6 @@ def test_load_period_return_email_codes_filters_only_etf_targets(tmp_path: Path)
                 "targets:",
                 "  - id: 159934",
                 "    source: etf_com_cn",
-                "    name: 黄金ETF易方达",
                 "  - id: cb_equal_weight",
                 "    source: jisilu_cb_index",
                 "    name: 集思录转债等权",
