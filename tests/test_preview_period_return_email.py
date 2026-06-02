@@ -29,7 +29,20 @@ def test_build_period_return_email_html_places_chart_before_table():
     assert "近1月收益率走势图" in html
     assert "近1月" in html
     assert "成立以来" in html
-    assert html.index("data:image/png;base64,abc") < html.index("<table")
+    assert html.index("data:image/png;base64,abc") < html.index("区间收益率表格")
+    assert html.index('alt="近1月收益率走势图"') < html.index("名称")
+
+
+def test_build_period_return_email_html_uses_email_table_layout():
+    html = module.build_period_return_email_html(
+        table_rows=[],
+        chart_data_uri="data:image/png;base64,abc",
+        as_of_label="2026-05-29",
+    )
+
+    assert 'role="presentation"' in html
+    assert 'width="100%"' in html
+    assert "max-width:1180px" not in html
 
 
 def test_write_preview_outputs_html_file(tmp_path: Path):

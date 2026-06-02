@@ -88,21 +88,37 @@ def build_period_return_email_html(
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ETF 区间收益预览</title>
 </head>
-<body style="margin:0;padding:24px;background:#eef2f6;font-family:'Microsoft YaHei','PingFang SC','Helvetica Neue',Arial,sans-serif;color:#1f2937">
-  <div style="max-width:1180px;margin:0 auto">
-    <div style="background:#ffffff;border-radius:18px;padding:24px 28px;box-shadow:0 12px 36px rgba(15,23,42,0.08)">
-      <div style="font-size:24px;font-weight:700;color:#152033">ETF 区间收益对比</div>
-      <div style="margin-top:8px;font-size:13px;color:#667085">数据截至 {escape(as_of_label)}</div>
-      <div style="margin-top:20px">
-        <div style="font-size:16px;font-weight:700;color:#152033;margin-bottom:12px">近1月收益率走势图</div>
-        <img src="{chart_data_uri}" alt="近1月收益率走势图" style="display:block;width:100%;height:auto;border-radius:12px">
-      </div>
-      <div style="margin-top:24px">
-        <div style="font-size:16px;font-weight:700;color:#152033;margin-bottom:12px">区间收益率表格</div>
-        {table_html}
-      </div>
-    </div>
-  </div>
+<body style="margin:0;padding:0;background:#eef2f6;font-family:'Microsoft YaHei','PingFang SC','Helvetica Neue',Arial,sans-serif;color:#1f2937">
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#eef2f6">
+    <tr>
+      <td align="center" style="padding:20px 8px">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#ffffff;border-radius:18px;overflow:hidden">
+          <tr>
+            <td style="padding:22px 20px 14px 20px;border-bottom:1px solid #e6ebf2">
+              <div style="font-size:24px;font-weight:700;color:#152033">ETF 区间收益对比</div>
+              <div style="margin-top:8px;font-size:13px;color:#667085">数据截至 {escape(as_of_label)}</div>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:16px 20px 0 20px">
+              <div style="font-size:16px;font-weight:700;color:#152033;margin-bottom:12px">近1月收益率走势图</div>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:0">
+              <img src="{chart_data_uri}" alt="近1月收益率走势图" style="display:block;width:100%;max-width:100%;height:auto">
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:22px 20px 22px 20px">
+              <div style="font-size:16px;font-weight:700;color:#152033;margin-bottom:12px">区间收益率表格</div>
+              {table_html}
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
 </body>
 </html>
 """
