@@ -51,9 +51,8 @@ def _confirm_transitions(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
     previous_state: str | None = None
     candidate_state: str | None = None
     candidate_date: str | None = None
-    candidate_index: int | None = None
 
-    for index, row in enumerate(output):
+    for row in output:
         state = row.get("trend_state")
         if state is None:
             continue
@@ -65,15 +64,20 @@ def _confirm_transitions(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 row["state_candidate_changed"] = True
                 candidate_state = state
                 candidate_date = row["date"]
-                candidate_index = index
             continue
         if state == candidate_state:
             row["transition_confirmed"] = True
             row["transition_date"] = candidate_date
             previous_state = candidate_state
+            candidate_state = None
+            candidate_date = None
+            continue
         candidate_state = None
         candidate_date = None
-        candidate_index = None
+        if state != previous_state:
+            row["state_candidate_changed"] = True
+            candidate_state = state
+            candidate_date = row["date"]
 
     return output
 

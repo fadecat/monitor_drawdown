@@ -162,3 +162,81 @@ def test_confirm_transitions_drops_candidate_when_state_reverts_next_day():
     assert confirmed[1]["state_candidate_changed"] is True
     assert confirmed[2]["transition_confirmed"] is False
     assert confirmed[2]["transition_date"] is None
+
+
+def test_confirm_transitions_starts_new_candidate_after_rejected_false_start():
+    records = [
+        {
+            "date": "2026-06-01",
+            "close": 1.0,
+            "ma20": 1.0,
+            "bias20_raw": -0.02,
+            "bias20": -0.01,
+            "direction5": -0.01,
+            "trend_state": "弱势下行",
+            "state_candidate_changed": False,
+            "transition_confirmed": False,
+            "transition_date": None,
+        },
+        {
+            "date": "2026-06-02",
+            "close": 1.0,
+            "ma20": 1.0,
+            "bias20_raw": -0.01,
+            "bias20": -0.005,
+            "direction5": 0.01,
+            "trend_state": "弱势修复",
+            "state_candidate_changed": False,
+            "transition_confirmed": False,
+            "transition_date": None,
+        },
+        {
+            "date": "2026-06-03",
+            "close": 1.0,
+            "ma20": 1.0,
+            "bias20_raw": 0.01,
+            "bias20": 0.01,
+            "direction5": 0.01,
+            "trend_state": "强势上行",
+            "state_candidate_changed": False,
+            "transition_confirmed": False,
+            "transition_date": None,
+        },
+        {
+            "date": "2026-06-04",
+            "close": 1.0,
+            "ma20": 1.0,
+            "bias20_raw": 0.012,
+            "bias20": 0.011,
+            "direction5": 0.02,
+            "trend_state": "强势上行",
+            "state_candidate_changed": False,
+            "transition_confirmed": False,
+            "transition_date": None,
+        },
+    ]
+
+    confirmed = module._confirm_transitions(records)
+
+    assert confirmed[2]["state_candidate_changed"] is True
+    assert confirmed[2]["transition_confirmed"] is False
+    assert confirmed[3]["transition_confirmed"] is True
+    assert confirmed[3]["transition_date"] == "2026-06-03"
+
+
+def test_analyze_trend_series_populates_latest_summary_fields():
+    closes = list(range(100, 130)) + [80, 82, 84, 86, 88, 90]
+    records = [
+        {"date": f"2026-01-{index + 1:02d}", "close": float(close)}
+        for index, close in enumerate(closes[:31])
+    ]
+    records.extend(
+        {"date": f"2026-02-{index - 30:02d}", "close": float(close)}
+        for index, close in enumerate(closes[31:], start=31)
+    )
+
+    analysis = module.analyze_trend_series(records)
+
+    assert analysis["latest_transition_date"] == "2026-02-01"
+    assert analysis["latest_valid_state"] == "弱势修复"
+    assert analysis["latest_valid_date"] == "2026-02-05"
