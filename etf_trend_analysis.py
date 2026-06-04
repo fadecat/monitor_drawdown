@@ -12,17 +12,21 @@ def _optional_float(value: Any) -> float | None:
 
 
 def _normalize_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    normalized: list[dict[str, Any]] = []
+    normalized: list[tuple[pd.Timestamp, dict[str, Any]]] = []
     for row in records:
         date_text = str(row.get("date") or "").strip()
         close_value = row.get("close")
         if not date_text or close_value in {None, ""}:
             continue
         try:
-            normalized.append({"date": date_text, "close": float(close_value)})
+            normalized_date = pd.to_datetime(date_text)
+            normalized.append(
+                (normalized_date, {"date": date_text, "close": float(close_value)})
+            )
         except (TypeError, ValueError):
             continue
-    return sorted(normalized, key=lambda item: item["date"])
+    normalized.sort(key=lambda item: item[0])
+    return [item[1] for item in normalized]
 
 
 def analyze_trend_series(records: list[dict[str, Any]]) -> dict[str, Any]:

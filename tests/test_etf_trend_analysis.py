@@ -1,5 +1,3 @@
-import math
-
 import etf_trend_analysis as module
 
 
@@ -45,3 +43,19 @@ def test_analyze_trend_series_keeps_trend_fields_empty_during_warm_up():
     assert latest["trend_state"] is None
     assert latest["transition_confirmed"] is False
     assert latest["transition_date"] is None
+
+
+def test_analyze_trend_series_orders_records_by_parsed_date():
+    analysis = module.analyze_trend_series(
+        [
+            {"date": "2026-01-10", "close": 110.0},
+            {"date": "2026-01-2", "close": 102.0},
+            {"date": "2026-01-01", "close": 101.0},
+        ]
+    )
+
+    assert [record["date"] for record in analysis["records"]] == [
+        "2026-01-01",
+        "2026-01-2",
+        "2026-01-10",
+    ]
