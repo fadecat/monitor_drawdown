@@ -1,3 +1,7 @@
+import json
+import shutil
+from pathlib import Path
+
 import inspect_etf_trend_sources as module
 import monitor_drawdown as md
 
@@ -255,19 +259,109 @@ def test_build_trend_benchmark_diffs_compares_bias_state_and_transition():
             "latest_transition_date": "2026-05-28",
         }
     ]
-    benchmarks = [
-        {
-            "label": "煤炭ETF",
-            "as_of_date": "2026-06-04",
-            "expected_bias20": 0.0248,
-            "expected_trend_state": "强势回落",
-            "expected_transition_date": "2026-05-27",
-        }
-    ]
 
-    diffs = module.build_trend_benchmark_diffs(snapshots, benchmarks)
 
-    assert diffs == [
+def test_build_summary_ok_count_reflects_trend_success_not_only_kline_success():
+    resolved = [{"label": "煤炭ETF", "status": "ok", "selected_primary": None}]
+    kline_results = [{"label": "煤炭ETF", "status": "ok", "selected_primary": None}]
+    trend_results = [{"label": "煤炭ETF", "status": "trend_failed", "selected_primary": None}]
+
+    summary = module.build_summary(resolved, kline_results, trend_results)
+
+    assert "- ok: 0" in summary
+    assert "- trend_failed: 1" in summary
+
+
+def _make_workspace_tmp(name: str) -> Path:
+    root = Path(".test_artifacts/test_inspect_etf_trend_sources") / name
+    if root.exists():
+        shutil.rmtree(root)
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+def _install_run_stubs(monkeypatch, output_root: Path):
+    monkeypatch.setattr(module, "OUTPUT_ROOT", output_root)
+    monkeypatch.setattr(module, "SERIES_DIR", output_root / "series")
+    monkeypatch.setattr(module, "SERIES_ANALYSIS_DIR", output_root / "series_analysis")
+    monkeypatch.setattr(module, "MANUAL_TREND_BENCHMARKS_PATH", output_root / "manual_trend_benchmarks.json")
+    monkeypatch.setattr(module, "TREND_METRICS_SUMMARY_PATH", output_root / "trend_metrics_summary.json")
+    monkeypatch.setattr(module, "TREND_BENCHMARK_DIFF_PATH", output_root / "trend_benchmark_diff.json")
+    monkeypatch.setattr(
+        module,
+        "DEFAULT_TARGETS",
+        [{"label": "煤炭ETF", "search_keywords": ["煤炭ETF"], "kline_kind": "auto"}],
+    )
+    monkeypatch.setattr(module, "today_range_strings", lambda: ("20250101", "20260101"))
+    monkeypatch.setattr(
+        module,
+        "resolve_target",
+        lambda target: {
+            "label": target["label"],
+            "search_keywords": target["search_keywords"],
+            "search_attempts": [{"keyword": "煤炭ETF", "success": True}],
+            "etf_candidate": None,
+            "index_candidate": None,
+            "selected_primary": {"kind": "etf", "code": "515220", "name": "煤炭ETF国泰"},
+            "status": "ok",
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "materialize_kline",
+        lambda item: {
+            "label": item["label"],
+            "status": "ok",
+            "selected_primary": item["selected_primary"],
+            "series_file": "series/etf_515220.json",
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "materialize_trend_analysis",
+        lambda item: {
+            "label": item["label"],
+            "status": "ok",
+            "selected_primary": item["selected_primary"],
+            "latest_snapshot": {
+                "latest_date": "2026-06-04",
+                "close": 1.2345,
+                "bias20_raw": 0.0312,
+                "bias20": 0.0256,
+                "direction5": -0.0041,
+                "trend_state": "强势回落",
+                "latest_transition_date": "2026-05-28",
+            },
+        },
+    )
+    return output_root
+
+
+def test_run_writes_trend_diff_when_manual_benchmarks_present(monkeypatch):
+    output_root = _install_run_stubs(
+        monkeypatch, _make_workspace_tmp("run_writes_trend_diff_when_manual_benchmarks_present")
+    )
+    output_root.mkdir(parents=True, exist_ok=True)
+    (output_root / "manual_trend_benchmarks.json").write_text(
+        json.dumps(
+            [
+                {
+                    "label": "煤炭ETF",
+                    "as_of_date": "2026-06-04",
+                    "expected_bias20": 0.0248,
+                    "expected_trend_state": "强势回落",
+                    "expected_transition_date": "2026-05-27",
+                }
+            ],
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    module.run()
+
+    diff_payload = json.loads((output_root / "trend_benchmark_diff.json").read_text(encoding="utf-8"))
+    assert diff_payload == [
         {
             "label": "煤炭ETF",
             "as_of_date": "2026-06-04",
@@ -282,3 +376,45 @@ def test_build_trend_benchmark_diffs_compares_bias_state_and_transition():
             "transition_date_match": False,
         }
     ]
+
+
+def test_run_removes_stale_trend_diff_when_benchmarks_absent(monkeypatch):
+    output_root = _install_run_stubs(
+        monkeypatch, _make_workspace_tmp("run_removes_stale_trend_diff_when_benchmarks_absent")
+    )
+    output_root.mkdir(parents=True, exist_ok=True)
+    stale_path = output_root / "trend_benchmark_diff.json"
+    stale_path.write_text("stale", encoding="utf-8")
+
+    module.run()
+
+    assert not stale_path.exists()
+    assert json.loads((output_root / "trend_metrics_summary.json").read_text(encoding="utf-8")) == [
+        {
+            "label": "煤炭ETF",
+            "selected_primary": {"kind": "etf", "code": "515220", "name": "煤炭ETF国泰"},
+            "latest_date": "2026-06-04",
+            "close": 1.2345,
+            "bias20_raw": 0.0312,
+            "bias20": 0.0256,
+            "direction5": -0.0041,
+            "trend_state": "强势回落",
+            "latest_transition_date": "2026-05-28",
+        }
+    ]
+
+
+def test_run_skips_invalid_benchmarks_and_removes_stale_diff(monkeypatch):
+    output_root = _install_run_stubs(
+        monkeypatch, _make_workspace_tmp("run_skips_invalid_benchmarks_and_removes_stale_diff")
+    )
+    output_root.mkdir(parents=True, exist_ok=True)
+    (output_root / "manual_trend_benchmarks.json").write_text('{"bad": true}', encoding="utf-8")
+    stale_path = output_root / "trend_benchmark_diff.json"
+    stale_path.write_text("stale", encoding="utf-8")
+
+    module.run()
+
+    assert not stale_path.exists()
+    assert (output_root / "trend_analysis_results.json").exists()
+    assert (output_root / "trend_metrics_summary.json").exists()

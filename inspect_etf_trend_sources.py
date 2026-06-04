@@ -122,6 +122,11 @@ def format_optional_float(value: Any) -> str:
         return "n/a"
 
 
+def remove_file_if_exists(path: Path) -> None:
+    if path.exists():
+        path.unlink()
+
+
 TAG_RE = re.compile(r"<[^>]+>")
 THEME_TOKENS = [
     "煤炭",
@@ -572,13 +577,14 @@ def materialize_trend_analysis(kline_result: dict[str, Any]) -> dict[str, Any]:
 
 
 def load_manual_trend_benchmarks(
-    path: Path = MANUAL_TREND_BENCHMARKS_PATH,
+    path: Path | None = None,
 ) -> list[dict[str, Any]]:
-    if not path.exists():
+    resolved_path = MANUAL_TREND_BENCHMARKS_PATH if path is None else path
+    if not resolved_path.exists():
         return []
-    payload = read_json(path)
+    payload = read_json(resolved_path)
     if not isinstance(payload, list):
-        raise ValueError(f"manual trend benchmarks must be a list: {path}")
+        raise ValueError(f"manual trend benchmarks must be a list: {resolved_path}")
     return [item for item in payload if isinstance(item, dict)]
 
 
@@ -631,7 +637,7 @@ def build_summary(
     kline_results: list[dict[str, Any]],
     trend_results: list[dict[str, Any]],
 ) -> str:
-    ok_count = sum(1 for item in kline_results if item["status"] == "ok")
+    ok_count = sum(1 for item in trend_results if item["status"] == "ok")
     unresolved_count = sum(1 for item in resolved if item["status"] == "unresolved")
     search_failed_count = sum(1 for item in resolved if item["status"] == "search_failed")
     kline_failed_count = sum(1 for item in kline_results if item["status"] == "kline_failed")
@@ -719,7 +725,12 @@ def run() -> None:
     ]
     write_json(TREND_METRICS_SUMMARY_PATH, trend_metrics_summary)
 
-    benchmarks = load_manual_trend_benchmarks()
+    remove_file_if_exists(TREND_BENCHMARK_DIFF_PATH)
+    try:
+        benchmarks = load_manual_trend_benchmarks()
+    except Exception as exc:
+        log("WARN", f"skip trend benchmark diff reason={exc}")
+        benchmarks = []
     if benchmarks:
         write_json(
             TREND_BENCHMARK_DIFF_PATH,
