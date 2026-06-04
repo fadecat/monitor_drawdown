@@ -607,7 +607,10 @@ def build_trend_benchmark_diffs(
         expected_bias20 = benchmark.get("expected_bias20")
         bias20_diff = None
         if actual_bias20 is not None and expected_bias20 is not None:
-            bias20_diff = round(float(actual_bias20) - float(expected_bias20), 4)
+            try:
+                bias20_diff = round(float(actual_bias20) - float(expected_bias20), 4)
+            except (TypeError, ValueError):
+                bias20_diff = None
 
         actual_trend_state = snapshot.get("trend_state")
         expected_trend_state = benchmark.get("expected_trend_state")

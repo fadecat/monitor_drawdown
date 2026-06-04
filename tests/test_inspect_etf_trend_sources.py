@@ -259,6 +259,72 @@ def test_build_trend_benchmark_diffs_compares_bias_state_and_transition():
             "latest_transition_date": "2026-05-28",
         }
     ]
+    benchmarks = [
+        {
+            "label": "煤炭ETF",
+            "as_of_date": "2026-06-04",
+            "expected_bias20": 0.0248,
+            "expected_trend_state": "强势回落",
+            "expected_transition_date": "2026-05-27",
+        }
+    ]
+
+    diffs = module.build_trend_benchmark_diffs(snapshots, benchmarks)
+
+    assert diffs == [
+        {
+            "label": "煤炭ETF",
+            "as_of_date": "2026-06-04",
+            "actual_bias20": 0.0256,
+            "expected_bias20": 0.0248,
+            "bias20_diff": 0.0008,
+            "actual_trend_state": "强势回落",
+            "expected_trend_state": "强势回落",
+            "trend_state_match": True,
+            "actual_transition_date": "2026-05-28",
+            "expected_transition_date": "2026-05-27",
+            "transition_date_match": False,
+        }
+    ]
+
+
+def test_build_trend_benchmark_diffs_degrades_bad_expected_bias20_without_crashing():
+    snapshots = [
+        {
+            "label": "煤炭ETF",
+            "latest_date": "2026-06-04",
+            "bias20": 0.0256,
+            "trend_state": "强势回落",
+            "latest_transition_date": "2026-05-28",
+        }
+    ]
+    benchmarks = [
+        {
+            "label": "煤炭ETF",
+            "as_of_date": "2026-06-04",
+            "expected_bias20": "bad",
+            "expected_trend_state": "强势回落",
+            "expected_transition_date": "2026-05-27",
+        }
+    ]
+
+    diffs = module.build_trend_benchmark_diffs(snapshots, benchmarks)
+
+    assert diffs == [
+        {
+            "label": "煤炭ETF",
+            "as_of_date": "2026-06-04",
+            "actual_bias20": 0.0256,
+            "expected_bias20": "bad",
+            "bias20_diff": None,
+            "actual_trend_state": "强势回落",
+            "expected_trend_state": "强势回落",
+            "trend_state_match": True,
+            "actual_transition_date": "2026-05-28",
+            "expected_transition_date": "2026-05-27",
+            "transition_date_match": False,
+        }
+    ]
 
 
 def test_build_summary_ok_count_reflects_trend_success_not_only_kline_success():
@@ -418,3 +484,44 @@ def test_run_skips_invalid_benchmarks_and_removes_stale_diff(monkeypatch):
     assert not stale_path.exists()
     assert (output_root / "trend_analysis_results.json").exists()
     assert (output_root / "trend_metrics_summary.json").exists()
+
+
+def test_run_skips_bad_benchmark_entry_values_without_crashing(monkeypatch):
+    output_root = _install_run_stubs(
+        monkeypatch, _make_workspace_tmp("run_skips_bad_benchmark_entry_values_without_crashing")
+    )
+    output_root.mkdir(parents=True, exist_ok=True)
+    (output_root / "manual_trend_benchmarks.json").write_text(
+        json.dumps(
+            [
+                {
+                    "label": "煤炭ETF",
+                    "as_of_date": "2026-06-04",
+                    "expected_bias20": "bad",
+                    "expected_trend_state": "强势回落",
+                    "expected_transition_date": "2026-05-27",
+                }
+            ],
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    module.run()
+
+    assert (output_root / "trend_analysis_results.json").exists()
+    assert json.loads((output_root / "trend_benchmark_diff.json").read_text(encoding="utf-8")) == [
+        {
+            "label": "煤炭ETF",
+            "as_of_date": "2026-06-04",
+            "actual_bias20": 0.0256,
+            "expected_bias20": "bad",
+            "bias20_diff": None,
+            "actual_trend_state": "强势回落",
+            "expected_trend_state": "强势回落",
+            "trend_state_match": True,
+            "actual_transition_date": "2026-05-28",
+            "expected_transition_date": "2026-05-27",
+            "transition_date_match": False,
+        }
+    ]
