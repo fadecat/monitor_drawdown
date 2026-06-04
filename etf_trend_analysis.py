@@ -29,6 +29,55 @@ def _normalize_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [item[1] for item in normalized]
 
 
+def _classify_trend_state_value(
+    bias20: float | None, direction5: float | None
+) -> str | None:
+    if bias20 is None or direction5 is None:
+        return None
+    if bias20 > 0 and direction5 > 0:
+        return "强势上行"
+    if bias20 > 0 and direction5 <= 0:
+        return "强势回落"
+    if bias20 <= 0 and direction5 > 0:
+        return "弱势修复"
+    return "弱势下行"
+
+
+def _confirm_transitions(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if not records:
+        return []
+
+    output = [dict(record) for record in records]
+    previous_state: str | None = None
+    candidate_state: str | None = None
+    candidate_date: str | None = None
+    candidate_index: int | None = None
+
+    for index, row in enumerate(output):
+        state = row.get("trend_state")
+        if state is None:
+            continue
+        if previous_state is None:
+            previous_state = state
+            continue
+        if candidate_state is None:
+            if state != previous_state:
+                row["state_candidate_changed"] = True
+                candidate_state = state
+                candidate_date = row["date"]
+                candidate_index = index
+            continue
+        if state == candidate_state:
+            row["transition_confirmed"] = True
+            row["transition_date"] = candidate_date
+            previous_state = candidate_state
+        candidate_state = None
+        candidate_date = None
+        candidate_index = None
+
+    return output
+
+
 def analyze_trend_series(records: list[dict[str, Any]]) -> dict[str, Any]:
     normalized = _normalize_records(records)
     if not normalized:
@@ -45,33 +94,47 @@ def analyze_trend_series(records: list[dict[str, Any]]) -> dict[str, Any]:
     frame["bias20"] = frame["bias20_raw"].rolling(5).mean()
     frame["direction5"] = frame["bias20"] - frame["bias20_raw"].shift(5)
     frame.loc[frame.index < 29, "direction5"] = pd.NA
-    frame["trend_state"] = None
     frame["state_candidate_changed"] = False
     frame["transition_confirmed"] = False
     frame["transition_date"] = None
 
     output_records = []
     for row in frame.to_dict(orient="records"):
+        bias20 = _optional_float(row["bias20"])
+        direction5 = _optional_float(row["direction5"])
         output_records.append(
             {
                 "date": str(row["date"]),
                 "close": float(row["close"]),
                 "ma20": _optional_float(row["ma20"]),
                 "bias20_raw": _optional_float(row["bias20_raw"]),
-                "bias20": _optional_float(row["bias20"]),
-                "direction5": _optional_float(row["direction5"]),
-                "trend_state": row["trend_state"],
-                "state_candidate_changed": bool(row["state_candidate_changed"]),
-                "transition_confirmed": bool(row["transition_confirmed"]),
+                "bias20": bias20,
+                "direction5": direction5,
+                "trend_state": _classify_trend_state_value(bias20, direction5),
+                "state_candidate_changed": False,
+                "transition_confirmed": False,
                 "transition_date": row["transition_date"],
             }
         )
 
+    output_records = _confirm_transitions(output_records)
+    latest_valid = next(
+        (row for row in reversed(output_records) if row["trend_state"] is not None), None
+    )
+    latest_transition = next(
+        (
+            row["transition_date"]
+            for row in reversed(output_records)
+            if row["transition_date"] is not None
+        ),
+        None,
+    )
+
     return {
         "records": output_records,
-        "latest_transition_date": None,
-        "latest_valid_state": None,
-        "latest_valid_date": None,
+        "latest_transition_date": latest_transition,
+        "latest_valid_state": None if latest_valid is None else latest_valid["trend_state"],
+        "latest_valid_date": None if latest_valid is None else latest_valid["date"],
     }
 
 
