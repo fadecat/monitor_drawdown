@@ -288,6 +288,262 @@ def test_build_trend_benchmark_diffs_compares_bias_state_and_transition():
     ]
 
 
+def test_build_screenshot_proxy_benchmark_diffs_compares_proxy_fields():
+    snapshots = [
+        {
+            "label": "煤炭ETF",
+            "selected_primary": {"kind": "etf", "code": "515220", "name": "煤炭ETF国泰"},
+            "screenshot_bias_value": 0.1008,
+            "screenshot_trend_state": "确立多头",
+            "screenshot_transition_date": "2026-05-29",
+        }
+    ]
+    benchmarks = [
+        {
+            "label": "煤炭ETF",
+            "as_of_date": "2026-06-03",
+            "expected_bias20": 0.1009,
+            "expected_trend_state": "确立多头",
+            "expected_transition_date": "2026-05-29",
+        }
+    ]
+
+    diffs = module.build_screenshot_proxy_benchmark_diffs(snapshots, benchmarks)
+
+    assert diffs == [
+        {
+            "label": "煤炭ETF",
+            "as_of_date": "2026-06-03",
+            "actual_bias20": 0.1008,
+            "expected_bias20": 0.1009,
+            "bias20_diff": -0.0001,
+            "actual_trend_state": "确立多头",
+            "expected_trend_state": "确立多头",
+            "trend_state_match": True,
+            "actual_transition_date": "2026-05-29",
+            "expected_transition_date": "2026-05-29",
+            "transition_date_match": True,
+        }
+    ]
+
+
+def test_build_screenshot_proxy_transition_diagnostics_summarizes_directional_skew():
+    diffs = [
+        {
+            "label": "标普500",
+            "actual_trend_state": "确立多头",
+            "expected_trend_state": "确立多头",
+            "actual_transition_date": "2026-04-09",
+            "expected_transition_date": "2026-04-30",
+            "transition_date_match": False,
+        },
+        {
+            "label": "黄金ETF",
+            "actual_trend_state": "确立空头",
+            "expected_trend_state": "确立空头",
+            "actual_transition_date": "2026-05-25",
+            "expected_transition_date": "2026-04-24",
+            "transition_date_match": False,
+        },
+        {
+            "label": "红利低波",
+            "actual_trend_state": "震荡中",
+            "expected_trend_state": "震荡中",
+            "actual_transition_date": "2026-06-01",
+            "expected_transition_date": "2026-06-01",
+            "transition_date_match": True,
+        },
+    ]
+
+    diagnostics = module.build_screenshot_proxy_transition_diagnostics(diffs)
+
+    assert diagnostics == {
+        "counts": {
+            "total": 3,
+            "exact": 1,
+            "earlier": 1,
+            "later": 1,
+            "within_3_days": 1,
+            "within_10_days": 1,
+        },
+        "by_state": [
+            {
+                "state": "确立多头",
+                "count": 1,
+                "exact": 0,
+                "earlier": 1,
+                "later": 0,
+                "mean_abs_delta_days": 21.0,
+            },
+            {
+                "state": "确立空头",
+                "count": 1,
+                "exact": 0,
+                "earlier": 0,
+                "later": 1,
+                "mean_abs_delta_days": 31.0,
+            },
+            {
+                "state": "震荡中",
+                "count": 1,
+                "exact": 1,
+                "earlier": 0,
+                "later": 0,
+                "mean_abs_delta_days": 0.0,
+            },
+        ],
+        "top_outliers": [
+            {
+                "label": "黄金ETF",
+                "state": "确立空头",
+                "actual_transition_date": "2026-05-25",
+                "expected_transition_date": "2026-04-24",
+                "delta_days": 31,
+                "abs_delta_days": 31,
+            },
+            {
+                "label": "标普500",
+                "state": "确立多头",
+                "actual_transition_date": "2026-04-09",
+                "expected_transition_date": "2026-04-30",
+                "delta_days": -21,
+                "abs_delta_days": 21,
+            },
+            {
+                "label": "红利低波",
+                "state": "震荡中",
+                "actual_transition_date": "2026-06-01",
+                "expected_transition_date": "2026-06-01",
+                "delta_days": 0,
+                "abs_delta_days": 0,
+            },
+        ],
+    }
+
+
+def test_build_screenshot_transition_regime_benchmark_diffs_compares_regime_fields():
+    snapshots = [
+        {
+            "label": "煤炭ETF",
+            "selected_primary": {"kind": "etf", "code": "515220", "name": "煤炭ETF国泰"},
+            "screenshot_bias_value": 0.1008,
+            "screenshot_transition_regime_state": "确立空头",
+            "screenshot_transition_regime_transition_date": "2026-05-28",
+        }
+    ]
+    benchmarks = [
+        {
+            "label": "煤炭ETF",
+            "as_of_date": "2026-06-03",
+            "expected_bias20": 0.1009,
+            "expected_trend_state": "确立空头",
+            "expected_transition_date": "2026-05-29",
+        }
+    ]
+
+    diffs = module.build_screenshot_transition_regime_benchmark_diffs(
+        snapshots, benchmarks
+    )
+
+    assert diffs == [
+        {
+            "label": "煤炭ETF",
+            "as_of_date": "2026-06-03",
+            "actual_bias20": 0.1008,
+            "expected_bias20": 0.1009,
+            "bias20_diff": -0.0001,
+            "actual_trend_state": "确立空头",
+            "expected_trend_state": "确立空头",
+            "trend_state_match": True,
+            "actual_transition_date": "2026-05-28",
+            "expected_transition_date": "2026-05-29",
+            "transition_date_match": False,
+        }
+    ]
+
+
+def test_build_screenshot_transition_hybrid_benchmark_diffs_keeps_main_state_and_hybrid_date():
+    snapshots = [
+        {
+            "label": "煤炭ETF",
+            "selected_primary": {"kind": "etf", "code": "515220", "name": "煤炭ETF国泰"},
+            "screenshot_bias_value": 0.1008,
+            "screenshot_transition_hybrid_state": "确立多头",
+            "screenshot_transition_hybrid_transition_date": "2026-05-28",
+        }
+    ]
+    benchmarks = [
+        {
+            "label": "煤炭ETF",
+            "as_of_date": "2026-06-03",
+            "expected_bias20": 0.1009,
+            "expected_trend_state": "确立多头",
+            "expected_transition_date": "2026-05-29",
+        }
+    ]
+
+    diffs = module.build_screenshot_transition_hybrid_benchmark_diffs(
+        snapshots, benchmarks
+    )
+
+    assert diffs == [
+        {
+            "label": "煤炭ETF",
+            "as_of_date": "2026-06-03",
+            "actual_bias20": 0.1008,
+            "expected_bias20": 0.1009,
+            "bias20_diff": -0.0001,
+            "actual_trend_state": "确立多头",
+            "expected_trend_state": "确立多头",
+            "trend_state_match": True,
+            "actual_transition_date": "2026-05-28",
+            "expected_transition_date": "2026-05-29",
+            "transition_date_match": False,
+        }
+    ]
+
+
+def test_build_screenshot_transition_bias_sign_benchmark_diffs_keeps_main_state_and_bias_sign_date():
+    snapshots = [
+        {
+            "label": "煤炭ETF",
+            "selected_primary": {"kind": "etf", "code": "515220", "name": "煤炭ETF国泰"},
+            "screenshot_bias_value": 0.1008,
+            "screenshot_transition_bias_sign_state": "确立多头",
+            "screenshot_transition_bias_sign_transition_date": "2026-05-27",
+        }
+    ]
+    benchmarks = [
+        {
+            "label": "煤炭ETF",
+            "as_of_date": "2026-06-03",
+            "expected_bias20": 0.1009,
+            "expected_trend_state": "确立多头",
+            "expected_transition_date": "2026-05-29",
+        }
+    ]
+
+    diffs = module.build_screenshot_transition_bias_sign_benchmark_diffs(
+        snapshots, benchmarks
+    )
+
+    assert diffs == [
+        {
+            "label": "煤炭ETF",
+            "as_of_date": "2026-06-03",
+            "actual_bias20": 0.1008,
+            "expected_bias20": 0.1009,
+            "bias20_diff": -0.0001,
+            "actual_trend_state": "确立多头",
+            "expected_trend_state": "确立多头",
+            "trend_state_match": True,
+            "actual_transition_date": "2026-05-27",
+            "expected_transition_date": "2026-05-29",
+            "transition_date_match": False,
+        }
+    ]
+
+
 def test_build_trend_benchmark_diffs_degrades_bad_expected_bias20_without_crashing():
     snapshots = [
         {
@@ -338,6 +594,70 @@ def test_build_summary_ok_count_reflects_trend_success_not_only_kline_success():
     assert "- trend_failed: 1" in summary
 
 
+def test_materialize_trend_analysis_writes_daily_records_to_expected_series_file(monkeypatch):
+    output_root = _make_workspace_tmp(
+        "materialize_trend_analysis_writes_daily_records_to_expected_series_file"
+    )
+    monkeypatch.setattr(module, "SERIES_ANALYSIS_DIR", output_root / "series_analysis")
+
+    source_records = [{"date": "2026-06-03", "close": 1.23}]
+    analysis_records = [
+        {
+            "date": "2026-06-03",
+            "close": 1.23,
+            "ma20": 1.2,
+            "bias20_raw": 0.025,
+            "bias20": 0.02,
+            "direction5": -0.004,
+            "trend_state": "强势回落",
+            "state_candidate_changed": False,
+            "transition_confirmed": False,
+            "transition_date": None,
+        }
+    ]
+    analysis_payload = {
+        "records": analysis_records,
+        "latest_transition_date": None,
+        "latest_valid_state": "强势回落",
+        "latest_valid_date": "2026-06-03",
+    }
+    latest_snapshot = {
+        "latest_date": "2026-06-03",
+        "close": 1.23,
+        "bias20_raw": 0.025,
+        "bias20": 0.02,
+        "direction5": -0.004,
+        "trend_state": "强势回落",
+        "latest_transition_date": None,
+    }
+
+    monkeypatch.setattr(module, "read_json", lambda path: source_records)
+    monkeypatch.setattr(
+        module.trend_analysis,
+        "analyze_trend_series",
+        lambda records: analysis_payload,
+    )
+    monkeypatch.setattr(
+        module.trend_analysis,
+        "build_latest_trend_snapshot",
+        lambda analysis: latest_snapshot,
+    )
+
+    result = module.materialize_trend_analysis(
+        {
+            "label": "煤炭ETF",
+            "status": "ok",
+            "selected_primary": {"kind": "etf", "code": "515220", "name": "煤炭ETF国泰"},
+            "series_file": "series/etf_515220.json",
+        }
+    )
+
+    expected_path = output_root / "series_analysis" / "etf_515220.json"
+    assert result["analysis_file"] == expected_path.as_posix()
+    assert json.loads(expected_path.read_text(encoding="utf-8")) == analysis_records
+    assert result["latest_snapshot"] == latest_snapshot
+
+
 def _make_workspace_tmp(name: str) -> Path:
     root = Path(".test_artifacts/test_inspect_etf_trend_sources") / name
     if root.exists():
@@ -353,6 +673,46 @@ def _install_run_stubs(monkeypatch, output_root: Path):
     monkeypatch.setattr(module, "MANUAL_TREND_BENCHMARKS_PATH", output_root / "manual_trend_benchmarks.json")
     monkeypatch.setattr(module, "TREND_METRICS_SUMMARY_PATH", output_root / "trend_metrics_summary.json")
     monkeypatch.setattr(module, "TREND_BENCHMARK_DIFF_PATH", output_root / "trend_benchmark_diff.json")
+    monkeypatch.setattr(
+        module,
+        "SCREENSHOT_PROXY_BENCHMARK_DIFF_PATH",
+        output_root / "screenshot_proxy_benchmark_diff.json",
+    )
+    monkeypatch.setattr(
+        module,
+        "SCREENSHOT_PROXY_TRANSITION_DIAGNOSTICS_PATH",
+        output_root / "screenshot_proxy_transition_diagnostics.json",
+    )
+    monkeypatch.setattr(
+        module,
+        "SCREENSHOT_TRANSITION_REGIME_BENCHMARK_DIFF_PATH",
+        output_root / "screenshot_transition_regime_benchmark_diff.json",
+    )
+    monkeypatch.setattr(
+        module,
+        "SCREENSHOT_TRANSITION_REGIME_DIAGNOSTICS_PATH",
+        output_root / "screenshot_transition_regime_diagnostics.json",
+    )
+    monkeypatch.setattr(
+        module,
+        "SCREENSHOT_TRANSITION_HYBRID_BENCHMARK_DIFF_PATH",
+        output_root / "screenshot_transition_hybrid_benchmark_diff.json",
+    )
+    monkeypatch.setattr(
+        module,
+        "SCREENSHOT_TRANSITION_HYBRID_DIAGNOSTICS_PATH",
+        output_root / "screenshot_transition_hybrid_diagnostics.json",
+    )
+    monkeypatch.setattr(
+        module,
+        "SCREENSHOT_TRANSITION_BIAS_SIGN_BENCHMARK_DIFF_PATH",
+        output_root / "screenshot_transition_bias_sign_benchmark_diff.json",
+    )
+    monkeypatch.setattr(
+        module,
+        "SCREENSHOT_TRANSITION_BIAS_SIGN_DIAGNOSTICS_PATH",
+        output_root / "screenshot_transition_bias_sign_diagnostics.json",
+    )
     monkeypatch.setattr(
         module,
         "DEFAULT_TARGETS",
@@ -397,6 +757,15 @@ def _install_run_stubs(monkeypatch, output_root: Path):
                 "direction5": -0.0041,
                 "trend_state": "强势回落",
                 "latest_transition_date": "2026-05-28",
+                "screenshot_bias_value": 0.0248,
+                "screenshot_trend_state": "确立多头",
+                "screenshot_transition_date": "2026-05-27",
+                "screenshot_transition_regime_state": "确立空头",
+                "screenshot_transition_regime_transition_date": "2026-05-26",
+                "screenshot_transition_bias_sign_state": "确立多头",
+                "screenshot_transition_bias_sign_transition_date": "2026-05-27",
+                "screenshot_transition_hybrid_state": "确立多头",
+                "screenshot_transition_hybrid_transition_date": "2026-05-28",
             },
         },
     )
@@ -442,6 +811,216 @@ def test_run_writes_trend_diff_when_manual_benchmarks_present(monkeypatch):
             "transition_date_match": False,
         }
     ]
+    assert json.loads(
+        (output_root / "screenshot_proxy_benchmark_diff.json").read_text(encoding="utf-8")
+    ) == [
+        {
+            "label": "煤炭ETF",
+            "as_of_date": "2026-06-04",
+            "actual_bias20": 0.0248,
+            "expected_bias20": 0.0248,
+            "bias20_diff": 0.0,
+            "actual_trend_state": "确立多头",
+            "expected_trend_state": "强势回落",
+            "trend_state_match": False,
+            "actual_transition_date": "2026-05-27",
+            "expected_transition_date": "2026-05-27",
+            "transition_date_match": True,
+        }
+    ]
+    assert json.loads(
+        (output_root / "screenshot_proxy_transition_diagnostics.json").read_text(
+            encoding="utf-8"
+        )
+    ) == {
+        "counts": {
+            "total": 1,
+            "exact": 1,
+            "earlier": 0,
+            "later": 0,
+            "within_3_days": 1,
+            "within_10_days": 1,
+        },
+        "by_state": [
+            {
+                "state": "强势回落",
+                "count": 1,
+                "exact": 1,
+                "earlier": 0,
+                "later": 0,
+                "mean_abs_delta_days": 0.0,
+            }
+        ],
+        "top_outliers": [
+            {
+                "label": "煤炭ETF",
+                "state": "强势回落",
+                "actual_transition_date": "2026-05-27",
+                "expected_transition_date": "2026-05-27",
+                "delta_days": 0,
+                "abs_delta_days": 0,
+            }
+        ],
+    }
+    assert json.loads(
+        (output_root / "screenshot_transition_regime_benchmark_diff.json").read_text(
+            encoding="utf-8"
+        )
+    ) == [
+        {
+            "label": "煤炭ETF",
+            "as_of_date": "2026-06-04",
+            "actual_bias20": 0.0248,
+            "expected_bias20": 0.0248,
+            "bias20_diff": 0.0,
+            "actual_trend_state": "确立空头",
+            "expected_trend_state": "强势回落",
+            "trend_state_match": False,
+            "actual_transition_date": "2026-05-26",
+            "expected_transition_date": "2026-05-27",
+            "transition_date_match": False,
+        }
+    ]
+    assert json.loads(
+        (output_root / "screenshot_transition_regime_diagnostics.json").read_text(
+            encoding="utf-8"
+        )
+    ) == {
+        "counts": {
+            "total": 1,
+            "exact": 0,
+            "earlier": 1,
+            "later": 0,
+            "within_3_days": 1,
+            "within_10_days": 1,
+        },
+        "by_state": [
+            {
+                "state": "强势回落",
+                "count": 1,
+                "exact": 0,
+                "earlier": 1,
+                "later": 0,
+                "mean_abs_delta_days": 1.0,
+            }
+        ],
+        "top_outliers": [
+            {
+                "label": "煤炭ETF",
+                "state": "强势回落",
+                "actual_transition_date": "2026-05-26",
+                "expected_transition_date": "2026-05-27",
+                "delta_days": -1,
+                "abs_delta_days": 1,
+            }
+        ],
+    }
+    assert json.loads(
+        (output_root / "screenshot_transition_hybrid_benchmark_diff.json").read_text(
+            encoding="utf-8"
+        )
+    ) == [
+        {
+            "label": "煤炭ETF",
+            "as_of_date": "2026-06-04",
+            "actual_bias20": 0.0248,
+            "expected_bias20": 0.0248,
+            "bias20_diff": 0.0,
+            "actual_trend_state": "确立多头",
+            "expected_trend_state": "强势回落",
+            "trend_state_match": False,
+            "actual_transition_date": "2026-05-28",
+            "expected_transition_date": "2026-05-27",
+            "transition_date_match": False,
+        }
+    ]
+    assert json.loads(
+        (output_root / "screenshot_transition_hybrid_diagnostics.json").read_text(
+            encoding="utf-8"
+        )
+    ) == {
+        "counts": {
+            "total": 1,
+            "exact": 0,
+            "earlier": 0,
+            "later": 1,
+            "within_3_days": 1,
+            "within_10_days": 1,
+        },
+        "by_state": [
+            {
+                "state": "强势回落",
+                "count": 1,
+                "exact": 0,
+                "earlier": 0,
+                "later": 1,
+                "mean_abs_delta_days": 1.0,
+            }
+        ],
+        "top_outliers": [
+            {
+                "label": "煤炭ETF",
+                "state": "强势回落",
+                "actual_transition_date": "2026-05-28",
+                "expected_transition_date": "2026-05-27",
+                "delta_days": 1,
+                "abs_delta_days": 1,
+            }
+        ],
+    }
+    assert json.loads(
+        (output_root / "screenshot_transition_bias_sign_benchmark_diff.json").read_text(
+            encoding="utf-8"
+        )
+    ) == [
+        {
+            "label": "煤炭ETF",
+            "as_of_date": "2026-06-04",
+            "actual_bias20": 0.0248,
+            "expected_bias20": 0.0248,
+            "bias20_diff": 0.0,
+            "actual_trend_state": "确立多头",
+            "expected_trend_state": "强势回落",
+            "trend_state_match": False,
+            "actual_transition_date": "2026-05-27",
+            "expected_transition_date": "2026-05-27",
+            "transition_date_match": True,
+        }
+    ]
+    assert json.loads(
+        (output_root / "screenshot_transition_bias_sign_diagnostics.json").read_text(
+            encoding="utf-8"
+        )
+    ) == {
+        "counts": {
+            "total": 1,
+            "exact": 1,
+            "earlier": 0,
+            "later": 0,
+            "within_3_days": 1,
+            "within_10_days": 1,
+        },
+        "by_state": [
+            {
+                "state": "强势回落",
+                "count": 1,
+                "exact": 1,
+                "earlier": 0,
+                "later": 0,
+                "mean_abs_delta_days": 0.0,
+            }
+        ],
+        "top_outliers": [
+            {
+                "label": "煤炭ETF",
+                "state": "强势回落",
+                "actual_transition_date": "2026-05-27",
+                "expected_transition_date": "2026-05-27",
+                "delta_days": 0,
+                "abs_delta_days": 0,
+            }
+        ],
+    }
 
 
 def test_run_removes_stale_trend_diff_when_benchmarks_absent(monkeypatch):
@@ -450,11 +1029,35 @@ def test_run_removes_stale_trend_diff_when_benchmarks_absent(monkeypatch):
     )
     output_root.mkdir(parents=True, exist_ok=True)
     stale_path = output_root / "trend_benchmark_diff.json"
+    stale_proxy_path = output_root / "screenshot_proxy_benchmark_diff.json"
+    stale_diag_path = output_root / "screenshot_proxy_transition_diagnostics.json"
+    stale_regime_path = output_root / "screenshot_transition_regime_benchmark_diff.json"
+    stale_regime_diag_path = output_root / "screenshot_transition_regime_diagnostics.json"
+    stale_hybrid_path = output_root / "screenshot_transition_hybrid_benchmark_diff.json"
+    stale_hybrid_diag_path = output_root / "screenshot_transition_hybrid_diagnostics.json"
+    stale_bias_sign_path = output_root / "screenshot_transition_bias_sign_benchmark_diff.json"
+    stale_bias_sign_diag_path = output_root / "screenshot_transition_bias_sign_diagnostics.json"
     stale_path.write_text("stale", encoding="utf-8")
+    stale_proxy_path.write_text("stale", encoding="utf-8")
+    stale_diag_path.write_text("stale", encoding="utf-8")
+    stale_regime_path.write_text("stale", encoding="utf-8")
+    stale_regime_diag_path.write_text("stale", encoding="utf-8")
+    stale_hybrid_path.write_text("stale", encoding="utf-8")
+    stale_hybrid_diag_path.write_text("stale", encoding="utf-8")
+    stale_bias_sign_path.write_text("stale", encoding="utf-8")
+    stale_bias_sign_diag_path.write_text("stale", encoding="utf-8")
 
     module.run()
 
     assert not stale_path.exists()
+    assert not stale_proxy_path.exists()
+    assert not stale_diag_path.exists()
+    assert not stale_regime_path.exists()
+    assert not stale_regime_diag_path.exists()
+    assert not stale_hybrid_path.exists()
+    assert not stale_hybrid_diag_path.exists()
+    assert not stale_bias_sign_path.exists()
+    assert not stale_bias_sign_diag_path.exists()
     assert json.loads((output_root / "trend_metrics_summary.json").read_text(encoding="utf-8")) == [
         {
             "label": "煤炭ETF",
@@ -466,6 +1069,15 @@ def test_run_removes_stale_trend_diff_when_benchmarks_absent(monkeypatch):
             "direction5": -0.0041,
             "trend_state": "强势回落",
             "latest_transition_date": "2026-05-28",
+            "screenshot_bias_value": 0.0248,
+            "screenshot_trend_state": "确立多头",
+            "screenshot_transition_date": "2026-05-27",
+            "screenshot_transition_regime_state": "确立空头",
+            "screenshot_transition_regime_transition_date": "2026-05-26",
+            "screenshot_transition_bias_sign_state": "确立多头",
+            "screenshot_transition_bias_sign_transition_date": "2026-05-27",
+            "screenshot_transition_hybrid_state": "确立多头",
+            "screenshot_transition_hybrid_transition_date": "2026-05-28",
         }
     ]
 
@@ -477,11 +1089,35 @@ def test_run_skips_invalid_benchmarks_and_removes_stale_diff(monkeypatch):
     output_root.mkdir(parents=True, exist_ok=True)
     (output_root / "manual_trend_benchmarks.json").write_text('{"bad": true}', encoding="utf-8")
     stale_path = output_root / "trend_benchmark_diff.json"
+    stale_proxy_path = output_root / "screenshot_proxy_benchmark_diff.json"
+    stale_diag_path = output_root / "screenshot_proxy_transition_diagnostics.json"
+    stale_regime_path = output_root / "screenshot_transition_regime_benchmark_diff.json"
+    stale_regime_diag_path = output_root / "screenshot_transition_regime_diagnostics.json"
+    stale_hybrid_path = output_root / "screenshot_transition_hybrid_benchmark_diff.json"
+    stale_hybrid_diag_path = output_root / "screenshot_transition_hybrid_diagnostics.json"
+    stale_bias_sign_path = output_root / "screenshot_transition_bias_sign_benchmark_diff.json"
+    stale_bias_sign_diag_path = output_root / "screenshot_transition_bias_sign_diagnostics.json"
     stale_path.write_text("stale", encoding="utf-8")
+    stale_proxy_path.write_text("stale", encoding="utf-8")
+    stale_diag_path.write_text("stale", encoding="utf-8")
+    stale_regime_path.write_text("stale", encoding="utf-8")
+    stale_regime_diag_path.write_text("stale", encoding="utf-8")
+    stale_hybrid_path.write_text("stale", encoding="utf-8")
+    stale_hybrid_diag_path.write_text("stale", encoding="utf-8")
+    stale_bias_sign_path.write_text("stale", encoding="utf-8")
+    stale_bias_sign_diag_path.write_text("stale", encoding="utf-8")
 
     module.run()
 
     assert not stale_path.exists()
+    assert not stale_proxy_path.exists()
+    assert not stale_diag_path.exists()
+    assert not stale_regime_path.exists()
+    assert not stale_regime_diag_path.exists()
+    assert not stale_hybrid_path.exists()
+    assert not stale_hybrid_diag_path.exists()
+    assert not stale_bias_sign_path.exists()
+    assert not stale_bias_sign_diag_path.exists()
     assert (output_root / "trend_analysis_results.json").exists()
     assert (output_root / "trend_metrics_summary.json").exists()
 
@@ -523,5 +1159,52 @@ def test_run_skips_bad_benchmark_entry_values_without_crashing(monkeypatch):
             "actual_transition_date": "2026-05-28",
             "expected_transition_date": "2026-05-27",
             "transition_date_match": False,
+        }
+    ]
+    assert json.loads(
+        (output_root / "screenshot_proxy_benchmark_diff.json").read_text(encoding="utf-8")
+    ) == [
+        {
+            "label": "煤炭ETF",
+            "as_of_date": "2026-06-04",
+            "actual_bias20": 0.0248,
+            "expected_bias20": "bad",
+            "bias20_diff": None,
+            "actual_trend_state": "确立多头",
+            "expected_trend_state": "强势回落",
+            "trend_state_match": False,
+            "actual_transition_date": "2026-05-27",
+            "expected_transition_date": "2026-05-27",
+            "transition_date_match": True,
+        }
+    ]
+
+
+def test_load_manual_trend_benchmarks_accepts_fillable_null_entries():
+    root = _make_workspace_tmp("load_manual_trend_benchmarks_accepts_fillable_null_entries")
+    path = root / "manual_trend_benchmarks.json"
+    path.write_text(
+        json.dumps(
+            [
+                {
+                    "label": "煤炭ETF",
+                    "as_of_date": "2026-06-03",
+                    "expected_bias20": None,
+                    "expected_trend_state": None,
+                    "expected_transition_date": None,
+                }
+            ],
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    assert module.load_manual_trend_benchmarks(path) == [
+        {
+            "label": "煤炭ETF",
+            "as_of_date": "2026-06-03",
+            "expected_bias20": None,
+            "expected_trend_state": None,
+            "expected_transition_date": None,
         }
     ]

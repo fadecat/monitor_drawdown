@@ -240,3 +240,405 @@ def test_analyze_trend_series_populates_latest_summary_fields():
     assert analysis["latest_transition_date"] == "2026-02-01"
     assert analysis["latest_valid_state"] == "弱势修复"
     assert analysis["latest_valid_date"] == "2026-02-05"
+
+
+def test_classify_screenshot_proxy_state_value_maps_three_state_proxy():
+    assert module._classify_screenshot_proxy_state_value(0.0080, 0.0010) == "确立多头"
+    assert module._classify_screenshot_proxy_state_value(0.0050, 0.0010) == "震荡中"
+    assert module._classify_screenshot_proxy_state_value(0.0030, -0.0050) == "确立多头"
+    assert module._classify_screenshot_proxy_state_value(-0.0030, -0.0400) == "确立多头"
+    assert module._classify_screenshot_proxy_state_value(-0.0200, 0.0020) == "确立空头"
+    assert module._classify_screenshot_proxy_state_value(-0.0200, -0.0050) == "震荡中"
+    assert module._classify_screenshot_proxy_state_value(None, 0.01) is None
+
+
+def test_classify_screenshot_transition_regime_value_uses_raw_and_smoothed_bias():
+    assert module._classify_screenshot_transition_regime_value(0.0110, 0.0000) == "确立多头"
+    assert module._classify_screenshot_transition_regime_value(0.0110, -0.0010) == "震荡中"
+    assert (
+        module._classify_screenshot_transition_regime_value(-0.0150, -0.0100)
+        == "确立空头"
+    )
+    assert (
+        module._classify_screenshot_transition_regime_value(-0.0140, -0.0200)
+        == "震荡中"
+    )
+    assert module._classify_screenshot_transition_regime_value(None, 0.0) is None
+
+
+def test_analyze_trend_series_populates_screenshot_proxy_state_after_warm_up():
+    analysis = module.analyze_trend_series(_make_records(range(100, 130)))
+
+    latest = analysis["records"][-1]
+
+    assert latest["screenshot_proxy_state"] == "确立多头"
+
+
+def test_apply_screenshot_transition_regime_requires_asymmetric_confirmation():
+    records = module._apply_screenshot_transition_regime(
+        [
+            {
+                "date": "2026-06-01",
+                "screenshot_transition_regime_signal": "确立多头",
+            },
+            {
+                "date": "2026-06-02",
+                "screenshot_transition_regime_signal": "震荡中",
+            },
+            {
+                "date": "2026-06-03",
+                "screenshot_transition_regime_signal": "震荡中",
+            },
+            {
+                "date": "2026-06-04",
+                "screenshot_transition_regime_signal": "确立空头",
+            },
+            {
+                "date": "2026-06-05",
+                "screenshot_transition_regime_signal": "确立空头",
+            },
+            {
+                "date": "2026-06-06",
+                "screenshot_transition_regime_signal": "确立空头",
+            },
+        ]
+    )
+
+    assert [
+        (
+            row["screenshot_transition_regime_state"],
+            row["screenshot_transition_regime_start_date"],
+        )
+        for row in records
+    ] == [
+        ("确立多头", "2026-06-01"),
+        ("确立多头", "2026-06-01"),
+        ("震荡中", "2026-06-02"),
+        ("震荡中", "2026-06-02"),
+        ("震荡中", "2026-06-02"),
+        ("确立空头", "2026-06-04"),
+    ]
+
+
+def test_build_latest_screenshot_proxy_snapshot_uses_current_state_run_start():
+    snapshot = module.build_latest_screenshot_proxy_snapshot(
+        {
+            "records": [
+                {
+                    "date": "2026-06-01",
+                    "bias20_raw": 0.0100,
+                    "bias20": 0.0030,
+                    "direction5": 0.0100,
+                    "screenshot_proxy_state": "确立多头",
+                },
+                {
+                    "date": "2026-06-02",
+                    "bias20_raw": -0.0100,
+                    "bias20": -0.0100,
+                    "direction5": -0.0030,
+                    "screenshot_proxy_state": "震荡中",
+                },
+                {
+                    "date": "2026-06-03",
+                    "bias20_raw": -0.0110,
+                    "bias20": -0.0090,
+                    "direction5": -0.0020,
+                    "screenshot_proxy_state": "震荡中",
+                },
+            ]
+        }
+    )
+
+    assert snapshot == {
+        "screenshot_bias_value": -0.0110,
+        "screenshot_trend_state": "震荡中",
+        "screenshot_transition_date": "2026-06-02",
+    }
+
+
+def test_build_latest_screenshot_proxy_snapshot_keeps_trend_through_one_day_neutral():
+    snapshot = module.build_latest_screenshot_proxy_snapshot(
+        {
+            "records": [
+                {
+                    "date": "2026-06-01",
+                    "bias20_raw": 0.0200,
+                    "bias20": 0.0100,
+                    "direction5": 0.0100,
+                    "screenshot_proxy_state": "确立多头",
+                },
+                {
+                    "date": "2026-06-02",
+                    "bias20_raw": 0.0180,
+                    "bias20": 0.0090,
+                    "direction5": 0.0080,
+                    "screenshot_proxy_state": "确立多头",
+                },
+                {
+                    "date": "2026-06-03",
+                    "bias20_raw": 0.0020,
+                    "bias20": 0.0010,
+                    "direction5": 0.0100,
+                    "screenshot_proxy_state": "震荡中",
+                },
+            ]
+        }
+    )
+
+    assert snapshot == {
+        "screenshot_bias_value": 0.0020,
+        "screenshot_trend_state": "确立多头",
+        "screenshot_transition_date": "2026-06-01",
+    }
+
+
+def test_build_latest_screenshot_transition_regime_snapshot_uses_confirmed_history():
+    records = module._apply_screenshot_transition_regime(
+        [
+            {
+                "date": "2026-06-01",
+                "screenshot_transition_regime_signal": "确立多头",
+            },
+            {
+                "date": "2026-06-02",
+                "screenshot_transition_regime_signal": "震荡中",
+            },
+            {
+                "date": "2026-06-03",
+                "screenshot_transition_regime_signal": "震荡中",
+            },
+            {
+                "date": "2026-06-04",
+                "screenshot_transition_regime_signal": "确立空头",
+            },
+            {
+                "date": "2026-06-05",
+                "screenshot_transition_regime_signal": "确立空头",
+            },
+            {
+                "date": "2026-06-06",
+                "screenshot_transition_regime_signal": "确立空头",
+            },
+        ]
+    )
+
+    snapshot = module.build_latest_screenshot_transition_regime_snapshot(
+        {"records": records}
+    )
+
+    assert snapshot == {
+        "screenshot_transition_regime_state": "确立空头",
+        "screenshot_transition_regime_transition_date": "2026-06-04",
+    }
+
+
+def test_find_latest_bias_sign_transition_date_uses_start_of_current_positive_run():
+    assert module._find_latest_bias_sign_transition_date(
+        [
+            {"date": "2026-06-01", "bias20": None},
+            {"date": "2026-06-02", "bias20": -0.0100},
+            {"date": "2026-06-03", "bias20": -0.0020},
+            {"date": "2026-06-04", "bias20": 0.0010},
+            {"date": "2026-06-05", "bias20": 0.0040},
+        ]
+    ) == "2026-06-04"
+
+
+def test_find_latest_bias_sign_transition_date_treats_zero_as_non_positive():
+    assert module._find_latest_bias_sign_transition_date(
+        [
+            {"date": "2026-06-01", "bias20": 0.0040},
+            {"date": "2026-06-02", "bias20": 0.0},
+            {"date": "2026-06-03", "bias20": -0.0030},
+        ]
+    ) == "2026-06-02"
+
+
+def test_build_latest_screenshot_transition_bias_sign_snapshot_keeps_proxy_state():
+    snapshot = module.build_latest_screenshot_transition_bias_sign_snapshot(
+        {
+            "records": [
+                {
+                    "date": "2026-06-01",
+                    "bias20_raw": 0.0200,
+                    "bias20": 0.0100,
+                    "direction5": 0.0100,
+                    "screenshot_proxy_state": "确立多头",
+                },
+                {
+                    "date": "2026-06-02",
+                    "bias20_raw": 0.0000,
+                    "bias20": 0.0,
+                    "direction5": -0.0100,
+                    "screenshot_proxy_state": "震荡中",
+                },
+                {
+                    "date": "2026-06-03",
+                    "bias20_raw": -0.0200,
+                    "bias20": -0.0050,
+                    "direction5": -0.0200,
+                    "screenshot_proxy_state": "确立空头",
+                },
+            ]
+        }
+    )
+
+    assert snapshot == {
+        "screenshot_transition_bias_sign_state": "确立空头",
+        "screenshot_transition_bias_sign_transition_date": "2026-06-02",
+    }
+
+
+def test_build_latest_screenshot_transition_hybrid_snapshot_mixes_dates_by_state():
+    analysis = {
+        "records": [
+            {
+                "date": "2026-06-01",
+                "bias20_raw": 0.0100,
+                "bias20": 0.0030,
+                "direction5": 0.0100,
+                "screenshot_proxy_state": "确立多头",
+                "screenshot_transition_regime_state": "震荡中",
+                "screenshot_transition_regime_start_date": "2026-05-28",
+            },
+            {
+                "date": "2026-06-02",
+                "bias20_raw": 0.0110,
+                "bias20": 0.0050,
+                "direction5": 0.0080,
+                "screenshot_proxy_state": "确立多头",
+                "screenshot_transition_regime_state": "震荡中",
+                "screenshot_transition_regime_start_date": "2026-05-28",
+            },
+            {
+                "date": "2026-06-03",
+                "bias20_raw": 0.0120,
+                "bias20": 0.0060,
+                "direction5": 0.0060,
+                "screenshot_proxy_state": "确立多头",
+                "screenshot_transition_regime_state": "确立多头",
+                "screenshot_transition_regime_start_date": "2026-06-02",
+            },
+        ]
+    }
+
+    snapshot = module.build_latest_screenshot_transition_hybrid_snapshot(analysis)
+
+    assert snapshot == {
+        "screenshot_transition_hybrid_state": "确立多头",
+        "screenshot_transition_hybrid_transition_date": "2026-06-01",
+    }
+
+
+def test_build_latest_screenshot_transition_hybrid_snapshot_uses_earlier_bear_date():
+    analysis = {
+        "records": [
+            {
+                "date": "2026-06-01",
+                "bias20_raw": -0.0200,
+                "bias20": -0.0200,
+                "direction5": 0.0020,
+                "screenshot_proxy_state": "确立空头",
+                "screenshot_transition_regime_state": "确立空头",
+                "screenshot_transition_regime_start_date": "2026-05-29",
+            },
+            {
+                "date": "2026-06-02",
+                "bias20_raw": -0.0210,
+                "bias20": -0.0210,
+                "direction5": 0.0030,
+                "screenshot_proxy_state": "确立空头",
+                "screenshot_transition_regime_state": "确立空头",
+                "screenshot_transition_regime_start_date": "2026-05-29",
+            },
+            {
+                "date": "2026-06-03",
+                "bias20_raw": -0.0220,
+                "bias20": -0.0220,
+                "direction5": 0.0040,
+                "screenshot_proxy_state": "确立空头",
+                "screenshot_transition_regime_state": "确立空头",
+                "screenshot_transition_regime_start_date": "2026-05-29",
+            },
+        ]
+    }
+
+    snapshot = module.build_latest_screenshot_transition_hybrid_snapshot(analysis)
+
+    assert snapshot == {
+        "screenshot_transition_hybrid_state": "确立空头",
+        "screenshot_transition_hybrid_transition_date": "2026-06-01",
+    }
+
+
+def test_build_latest_screenshot_transition_hybrid_snapshot_uses_regime_when_bull_momentum_is_weak():
+    analysis = {
+        "records": [
+            {
+                "date": "2026-06-01",
+                "bias20_raw": 0.0100,
+                "bias20": 0.0020,
+                "direction5": -0.0400,
+                "screenshot_proxy_state": "确立多头",
+                "screenshot_transition_regime_state": "震荡中",
+                "screenshot_transition_regime_start_date": "2026-05-28",
+            },
+            {
+                "date": "2026-06-02",
+                "bias20_raw": 0.0090,
+                "bias20": 0.0010,
+                "direction5": -0.0350,
+                "screenshot_proxy_state": "确立多头",
+                "screenshot_transition_regime_state": "震荡中",
+                "screenshot_transition_regime_start_date": "2026-05-28",
+            },
+        ]
+    }
+
+    snapshot = module.build_latest_screenshot_transition_hybrid_snapshot(analysis)
+
+    assert snapshot == {
+        "screenshot_transition_hybrid_state": "确立多头",
+        "screenshot_transition_hybrid_transition_date": "2026-05-28",
+    }
+
+
+def test_build_latest_screenshot_transition_hybrid_snapshot_uses_proxy_when_bear_rebound_is_strong():
+    analysis = {
+        "records": [
+            {
+                "date": "2026-06-01",
+                "bias20_raw": -0.0200,
+                "bias20": -0.0120,
+                "direction5": 0.0100,
+                "screenshot_proxy_state": "确立空头",
+                "screenshot_transition_regime_state": "确立空头",
+                "screenshot_transition_regime_start_date": "2026-05-29",
+            },
+            {
+                "date": "2026-06-02",
+                "bias20_raw": -0.0210,
+                "bias20": -0.0110,
+                "direction5": 0.0080,
+                "screenshot_proxy_state": "确立空头",
+                "screenshot_transition_regime_state": "确立空头",
+                "screenshot_transition_regime_start_date": "2026-05-29",
+            },
+            {
+                "date": "2026-06-03",
+                "bias20_raw": -0.0220,
+                "bias20": -0.0110,
+                "direction5": 0.0060,
+                "screenshot_proxy_state": "确立空头",
+                "screenshot_transition_regime_state": "确立空头",
+                "screenshot_transition_regime_start_date": "2026-05-29",
+            },
+        ]
+    }
+
+    snapshot = module.build_latest_screenshot_transition_hybrid_snapshot(analysis)
+
+    assert snapshot == {
+        "screenshot_transition_hybrid_state": "确立空头",
+        "screenshot_transition_hybrid_transition_date": "2026-06-01",
+    }

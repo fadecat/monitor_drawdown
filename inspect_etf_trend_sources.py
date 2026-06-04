@@ -21,6 +21,28 @@ SERIES_ANALYSIS_DIR = OUTPUT_ROOT / "series_analysis"
 MANUAL_TREND_BENCHMARKS_PATH = OUTPUT_ROOT / "manual_trend_benchmarks.json"
 TREND_METRICS_SUMMARY_PATH = OUTPUT_ROOT / "trend_metrics_summary.json"
 TREND_BENCHMARK_DIFF_PATH = OUTPUT_ROOT / "trend_benchmark_diff.json"
+SCREENSHOT_PROXY_BENCHMARK_DIFF_PATH = OUTPUT_ROOT / "screenshot_proxy_benchmark_diff.json"
+SCREENSHOT_PROXY_TRANSITION_DIAGNOSTICS_PATH = (
+    OUTPUT_ROOT / "screenshot_proxy_transition_diagnostics.json"
+)
+SCREENSHOT_TRANSITION_REGIME_BENCHMARK_DIFF_PATH = (
+    OUTPUT_ROOT / "screenshot_transition_regime_benchmark_diff.json"
+)
+SCREENSHOT_TRANSITION_REGIME_DIAGNOSTICS_PATH = (
+    OUTPUT_ROOT / "screenshot_transition_regime_diagnostics.json"
+)
+SCREENSHOT_TRANSITION_HYBRID_BENCHMARK_DIFF_PATH = (
+    OUTPUT_ROOT / "screenshot_transition_hybrid_benchmark_diff.json"
+)
+SCREENSHOT_TRANSITION_HYBRID_DIAGNOSTICS_PATH = (
+    OUTPUT_ROOT / "screenshot_transition_hybrid_diagnostics.json"
+)
+SCREENSHOT_TRANSITION_BIAS_SIGN_BENCHMARK_DIFF_PATH = (
+    OUTPUT_ROOT / "screenshot_transition_bias_sign_benchmark_diff.json"
+)
+SCREENSHOT_TRANSITION_BIAS_SIGN_DIAGNOSTICS_PATH = (
+    OUTPUT_ROOT / "screenshot_transition_bias_sign_diagnostics.json"
+)
 REQUEST_TIMEOUT = 15
 LOOKBACK_DAYS = 365
 
@@ -556,9 +578,23 @@ def materialize_trend_analysis(kline_result: dict[str, Any]) -> dict[str, Any]:
         series_records = read_json(series_path)
         analysis = trend_analysis.analyze_trend_series(series_records)
         latest_snapshot = trend_analysis.build_latest_trend_snapshot(analysis)
-        analysis_filename = f"{selected_primary['kind']}_{selected_primary['code']}_analysis.json"
+        latest_snapshot.update(
+            trend_analysis.build_latest_screenshot_proxy_snapshot(analysis)
+        )
+        latest_snapshot.update(
+            trend_analysis.build_latest_screenshot_transition_regime_snapshot(analysis)
+        )
+        latest_snapshot.update(
+            trend_analysis.build_latest_screenshot_transition_bias_sign_snapshot(
+                analysis
+            )
+        )
+        latest_snapshot.update(
+            trend_analysis.build_latest_screenshot_transition_hybrid_snapshot(analysis)
+        )
+        analysis_filename = f"{selected_primary['kind']}_{selected_primary['code']}.json"
         analysis_path = SERIES_ANALYSIS_DIR / analysis_filename
-        write_json(analysis_path, analysis)
+        write_json(analysis_path, analysis["records"])
         return {
             "label": kline_result["label"],
             "status": "ok",
@@ -633,6 +669,283 @@ def build_trend_benchmark_diffs(
             }
         )
     return diffs
+
+
+def build_screenshot_proxy_benchmark_diffs(
+    snapshots: list[dict[str, Any]], benchmarks: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    snapshot_by_label = {
+        str(item.get("label") or "").strip(): item
+        for item in snapshots
+        if str(item.get("label") or "").strip()
+    }
+    diffs: list[dict[str, Any]] = []
+    for benchmark in benchmarks:
+        label = str(benchmark.get("label") or "").strip()
+        snapshot = snapshot_by_label.get(label)
+        if not snapshot:
+            continue
+
+        actual_bias20 = snapshot.get("screenshot_bias_value")
+        expected_bias20 = benchmark.get("expected_bias20")
+        bias20_diff = None
+        if actual_bias20 is not None and expected_bias20 is not None:
+            try:
+                bias20_diff = round(float(actual_bias20) - float(expected_bias20), 4)
+            except (TypeError, ValueError):
+                bias20_diff = None
+
+        actual_trend_state = snapshot.get("screenshot_trend_state")
+        expected_trend_state = benchmark.get("expected_trend_state")
+        actual_transition_date = snapshot.get("screenshot_transition_date")
+        expected_transition_date = benchmark.get("expected_transition_date")
+
+        diffs.append(
+            {
+                "label": label,
+                "as_of_date": benchmark.get("as_of_date") or snapshot.get("latest_date"),
+                "actual_bias20": actual_bias20,
+                "expected_bias20": expected_bias20,
+                "bias20_diff": bias20_diff,
+                "actual_trend_state": actual_trend_state,
+                "expected_trend_state": expected_trend_state,
+                "trend_state_match": actual_trend_state == expected_trend_state,
+                "actual_transition_date": actual_transition_date,
+                "expected_transition_date": expected_transition_date,
+                "transition_date_match": actual_transition_date == expected_transition_date,
+            }
+        )
+    return diffs
+
+
+def build_screenshot_transition_regime_benchmark_diffs(
+    snapshots: list[dict[str, Any]], benchmarks: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    snapshot_by_label = {
+        str(item.get("label") or "").strip(): item
+        for item in snapshots
+        if str(item.get("label") or "").strip()
+    }
+    diffs: list[dict[str, Any]] = []
+    for benchmark in benchmarks:
+        label = str(benchmark.get("label") or "").strip()
+        snapshot = snapshot_by_label.get(label)
+        if not snapshot:
+            continue
+
+        actual_bias20 = snapshot.get("screenshot_bias_value")
+        expected_bias20 = benchmark.get("expected_bias20")
+        bias20_diff = None
+        if actual_bias20 is not None and expected_bias20 is not None:
+            try:
+                bias20_diff = round(float(actual_bias20) - float(expected_bias20), 4)
+            except (TypeError, ValueError):
+                bias20_diff = None
+
+        actual_trend_state = snapshot.get("screenshot_transition_regime_state")
+        expected_trend_state = benchmark.get("expected_trend_state")
+        actual_transition_date = snapshot.get(
+            "screenshot_transition_regime_transition_date"
+        )
+        expected_transition_date = benchmark.get("expected_transition_date")
+
+        diffs.append(
+            {
+                "label": label,
+                "as_of_date": benchmark.get("as_of_date") or snapshot.get("latest_date"),
+                "actual_bias20": actual_bias20,
+                "expected_bias20": expected_bias20,
+                "bias20_diff": bias20_diff,
+                "actual_trend_state": actual_trend_state,
+                "expected_trend_state": expected_trend_state,
+                "trend_state_match": actual_trend_state == expected_trend_state,
+                "actual_transition_date": actual_transition_date,
+                "expected_transition_date": expected_transition_date,
+                "transition_date_match": actual_transition_date == expected_transition_date,
+            }
+        )
+    return diffs
+
+
+def build_screenshot_transition_hybrid_benchmark_diffs(
+    snapshots: list[dict[str, Any]], benchmarks: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    snapshot_by_label = {
+        str(item.get("label") or "").strip(): item
+        for item in snapshots
+        if str(item.get("label") or "").strip()
+    }
+    diffs: list[dict[str, Any]] = []
+    for benchmark in benchmarks:
+        label = str(benchmark.get("label") or "").strip()
+        snapshot = snapshot_by_label.get(label)
+        if not snapshot:
+            continue
+
+        actual_bias20 = snapshot.get("screenshot_bias_value")
+        expected_bias20 = benchmark.get("expected_bias20")
+        bias20_diff = None
+        if actual_bias20 is not None and expected_bias20 is not None:
+            try:
+                bias20_diff = round(float(actual_bias20) - float(expected_bias20), 4)
+            except (TypeError, ValueError):
+                bias20_diff = None
+
+        actual_trend_state = snapshot.get("screenshot_transition_hybrid_state")
+        expected_trend_state = benchmark.get("expected_trend_state")
+        actual_transition_date = snapshot.get(
+            "screenshot_transition_hybrid_transition_date"
+        )
+        expected_transition_date = benchmark.get("expected_transition_date")
+
+        diffs.append(
+            {
+                "label": label,
+                "as_of_date": benchmark.get("as_of_date") or snapshot.get("latest_date"),
+                "actual_bias20": actual_bias20,
+                "expected_bias20": expected_bias20,
+                "bias20_diff": bias20_diff,
+                "actual_trend_state": actual_trend_state,
+                "expected_trend_state": expected_trend_state,
+                "trend_state_match": actual_trend_state == expected_trend_state,
+                "actual_transition_date": actual_transition_date,
+                "expected_transition_date": expected_transition_date,
+                "transition_date_match": actual_transition_date == expected_transition_date,
+            }
+        )
+    return diffs
+
+
+def build_screenshot_transition_bias_sign_benchmark_diffs(
+    snapshots: list[dict[str, Any]], benchmarks: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    snapshot_by_label = {
+        str(item.get("label") or "").strip(): item
+        for item in snapshots
+        if str(item.get("label") or "").strip()
+    }
+    diffs: list[dict[str, Any]] = []
+    for benchmark in benchmarks:
+        label = str(benchmark.get("label") or "").strip()
+        snapshot = snapshot_by_label.get(label)
+        if not snapshot:
+            continue
+
+        actual_bias20 = snapshot.get("screenshot_bias_value")
+        expected_bias20 = benchmark.get("expected_bias20")
+        bias20_diff = None
+        if actual_bias20 is not None and expected_bias20 is not None:
+            try:
+                bias20_diff = round(float(actual_bias20) - float(expected_bias20), 4)
+            except (TypeError, ValueError):
+                bias20_diff = None
+
+        actual_trend_state = snapshot.get("screenshot_transition_bias_sign_state")
+        expected_trend_state = benchmark.get("expected_trend_state")
+        actual_transition_date = snapshot.get(
+            "screenshot_transition_bias_sign_transition_date"
+        )
+        expected_transition_date = benchmark.get("expected_transition_date")
+
+        diffs.append(
+            {
+                "label": label,
+                "as_of_date": benchmark.get("as_of_date") or snapshot.get("latest_date"),
+                "actual_bias20": actual_bias20,
+                "expected_bias20": expected_bias20,
+                "bias20_diff": bias20_diff,
+                "actual_trend_state": actual_trend_state,
+                "expected_trend_state": expected_trend_state,
+                "trend_state_match": actual_trend_state == expected_trend_state,
+                "actual_transition_date": actual_transition_date,
+                "expected_transition_date": expected_transition_date,
+                "transition_date_match": actual_transition_date == expected_transition_date,
+            }
+        )
+    return diffs
+
+
+def _compute_transition_delta_days(
+    actual_transition_date: Any, expected_transition_date: Any
+) -> int | None:
+    if not actual_transition_date or not expected_transition_date:
+        return None
+    try:
+        actual = datetime.strptime(str(actual_transition_date), "%Y-%m-%d").date()
+        expected = datetime.strptime(str(expected_transition_date), "%Y-%m-%d").date()
+    except ValueError:
+        return None
+    return (actual - expected).days
+
+
+def build_screenshot_proxy_transition_diagnostics(
+    diffs: list[dict[str, Any]],
+) -> dict[str, Any]:
+    rows: list[dict[str, Any]] = []
+    for item in diffs:
+        delta_days = _compute_transition_delta_days(
+            item.get("actual_transition_date"),
+            item.get("expected_transition_date"),
+        )
+        if delta_days is None:
+            continue
+        rows.append(
+            {
+                "label": str(item.get("label") or "").strip(),
+                "state": str(
+                    item.get("expected_trend_state")
+                    or item.get("actual_trend_state")
+                    or ""
+                ).strip(),
+                "actual_transition_date": item.get("actual_transition_date"),
+                "expected_transition_date": item.get("expected_transition_date"),
+                "delta_days": delta_days,
+                "abs_delta_days": abs(delta_days),
+            }
+        )
+
+    counts = {
+        "total": len(rows),
+        "exact": sum(1 for row in rows if row["delta_days"] == 0),
+        "earlier": sum(1 for row in rows if row["delta_days"] < 0),
+        "later": sum(1 for row in rows if row["delta_days"] > 0),
+        "within_3_days": sum(1 for row in rows if row["abs_delta_days"] <= 3),
+        "within_10_days": sum(1 for row in rows if row["abs_delta_days"] <= 10),
+    }
+
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        grouped.setdefault(row["state"], []).append(row)
+
+    by_state: list[dict[str, Any]] = []
+    for state, items in grouped.items():
+        mean_abs_delta_days = (
+            sum(row["abs_delta_days"] for row in items) / len(items) if items else 0.0
+        )
+        by_state.append(
+            {
+                "state": state,
+                "count": len(items),
+                "exact": sum(1 for row in items if row["delta_days"] == 0),
+                "earlier": sum(1 for row in items if row["delta_days"] < 0),
+                "later": sum(1 for row in items if row["delta_days"] > 0),
+                "mean_abs_delta_days": round(mean_abs_delta_days, 1),
+            }
+        )
+
+    state_order = {"确立多头": 0, "确立空头": 1, "震荡中": 2}
+    by_state.sort(key=lambda item: (state_order.get(item["state"], 99), item["state"]))
+
+    top_outliers = sorted(
+        rows,
+        key=lambda row: (-row["abs_delta_days"], row["label"]),
+    )[:5]
+
+    return {
+        "counts": counts,
+        "by_state": by_state,
+        "top_outliers": top_outliers,
+    }
 
 
 def build_summary(
@@ -729,15 +1042,81 @@ def run() -> None:
     write_json(TREND_METRICS_SUMMARY_PATH, trend_metrics_summary)
 
     remove_file_if_exists(TREND_BENCHMARK_DIFF_PATH)
+    remove_file_if_exists(SCREENSHOT_PROXY_BENCHMARK_DIFF_PATH)
+    remove_file_if_exists(SCREENSHOT_PROXY_TRANSITION_DIAGNOSTICS_PATH)
+    remove_file_if_exists(SCREENSHOT_TRANSITION_REGIME_BENCHMARK_DIFF_PATH)
+    remove_file_if_exists(SCREENSHOT_TRANSITION_REGIME_DIAGNOSTICS_PATH)
+    remove_file_if_exists(SCREENSHOT_TRANSITION_HYBRID_BENCHMARK_DIFF_PATH)
+    remove_file_if_exists(SCREENSHOT_TRANSITION_HYBRID_DIAGNOSTICS_PATH)
+    remove_file_if_exists(SCREENSHOT_TRANSITION_BIAS_SIGN_BENCHMARK_DIFF_PATH)
+    remove_file_if_exists(SCREENSHOT_TRANSITION_BIAS_SIGN_DIAGNOSTICS_PATH)
     try:
         benchmarks = load_manual_trend_benchmarks()
     except Exception as exc:
         log("WARN", f"skip trend benchmark diff reason={exc}")
         benchmarks = []
     if benchmarks:
+        screenshot_proxy_benchmark_diffs = build_screenshot_proxy_benchmark_diffs(
+            trend_metrics_summary, benchmarks
+        )
         write_json(
             TREND_BENCHMARK_DIFF_PATH,
             build_trend_benchmark_diffs(trend_metrics_summary, benchmarks),
+        )
+        write_json(
+            SCREENSHOT_PROXY_BENCHMARK_DIFF_PATH,
+            screenshot_proxy_benchmark_diffs,
+        )
+        write_json(
+            SCREENSHOT_PROXY_TRANSITION_DIAGNOSTICS_PATH,
+            build_screenshot_proxy_transition_diagnostics(
+                screenshot_proxy_benchmark_diffs
+            ),
+        )
+        screenshot_transition_regime_diffs = (
+            build_screenshot_transition_regime_benchmark_diffs(
+                trend_metrics_summary, benchmarks
+            )
+        )
+        write_json(
+            SCREENSHOT_TRANSITION_REGIME_BENCHMARK_DIFF_PATH,
+            screenshot_transition_regime_diffs,
+        )
+        write_json(
+            SCREENSHOT_TRANSITION_REGIME_DIAGNOSTICS_PATH,
+            build_screenshot_proxy_transition_diagnostics(
+                screenshot_transition_regime_diffs
+            ),
+        )
+        screenshot_transition_hybrid_diffs = (
+            build_screenshot_transition_hybrid_benchmark_diffs(
+                trend_metrics_summary, benchmarks
+            )
+        )
+        write_json(
+            SCREENSHOT_TRANSITION_HYBRID_BENCHMARK_DIFF_PATH,
+            screenshot_transition_hybrid_diffs,
+        )
+        write_json(
+            SCREENSHOT_TRANSITION_HYBRID_DIAGNOSTICS_PATH,
+            build_screenshot_proxy_transition_diagnostics(
+                screenshot_transition_hybrid_diffs
+            ),
+        )
+        screenshot_transition_bias_sign_diffs = (
+            build_screenshot_transition_bias_sign_benchmark_diffs(
+                trend_metrics_summary, benchmarks
+            )
+        )
+        write_json(
+            SCREENSHOT_TRANSITION_BIAS_SIGN_BENCHMARK_DIFF_PATH,
+            screenshot_transition_bias_sign_diffs,
+        )
+        write_json(
+            SCREENSHOT_TRANSITION_BIAS_SIGN_DIAGNOSTICS_PATH,
+            build_screenshot_proxy_transition_diagnostics(
+                screenshot_transition_bias_sign_diffs
+            ),
         )
 
     summary_text = build_summary(resolved_results, kline_results, trend_results)
