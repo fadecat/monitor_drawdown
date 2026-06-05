@@ -19,6 +19,16 @@ def _make_series(label: str, closes: list[float]) -> list[dict[str, float | str]
     ]
 
 
+def _make_dated_series(
+    label: str,
+    date_and_closes: list[tuple[str, float]],
+) -> list[dict[str, float | str]]:
+    return [
+        {"date": date_text, "close": float(close), "label": label}
+        for date_text, close in date_and_closes
+    ]
+
+
 def test_replay_rotation_strategy_switches_when_new_leader_appears():
     series_by_label = {
         "A": _make_series("A", [100 + index for index in range(21)] + [121, 121, 121]),
@@ -77,6 +87,103 @@ def test_replay_rotation_strategy_uses_next_day_returns():
 
     assert round(result["daily_positions"][0]["daily_return"], 4) == 0.0500
     assert round(result["daily_positions"][0]["strategy_nav"], 4) == 1.0500
+
+
+def test_replay_rotation_strategy_does_not_drop_signal_dates_for_other_symbols():
+    series_by_label = {
+        "A": _make_series("A", [100 + index for index in range(24)]),
+        "B": _make_dated_series(
+            "B",
+            [
+                (f"2026-02-{index:02d}", 100 + (index - 1) * 0.2)
+                for index in range(1, 22)
+            ]
+            + [("2026-02-23", 104.2), ("2026-02-24", 104.4)],
+        ),
+    }
+    metadata_by_label = {
+        "A": {"label": "A", "code": "510001", "kind": "etf", "name": "AETF"},
+        "B": {"label": "B", "code": "510002", "kind": "etf", "name": "BETF"},
+    }
+
+    result = module.replay_rotation_strategy(
+        series_by_label=series_by_label,
+        metadata_by_label=metadata_by_label,
+        strategy_config={"lookback_days": 20, "holdings_num": 1},
+    )
+
+    assert any(
+        row["signal_date"] == "2026-02-22" and row["holding_symbol"] == "510001"
+        for row in result["daily_positions"]
+    )
+
+
+def test_replay_rotation_strategy_ignores_empty_series_without_crashing():
+    series_by_label = {
+        "A": _make_series("A", [100 + index for index in range(24)]),
+        "空仓标的": [],
+    }
+    metadata_by_label = {
+        "A": {"label": "A", "code": "510001", "kind": "etf", "name": "AETF"},
+        "空仓标的": {
+            "label": "空仓标的",
+            "code": "510099",
+            "kind": "etf",
+            "name": "EmptyETF",
+        },
+    }
+
+    result = module.replay_rotation_strategy(
+        series_by_label=series_by_label,
+        metadata_by_label=metadata_by_label,
+        strategy_config={"lookback_days": 20, "holdings_num": 1},
+    )
+
+    assert result["daily_positions"]
+    assert result["daily_positions"][0]["holding_symbol"] == "510001"
+
+
+def test_replay_rotation_strategy_populates_from_20d_return_on_switch():
+    series_by_label = {
+        "A": _make_series("A", [100 + index for index in range(21)] + [121, 121, 121]),
+        "B": _make_series("B", [100 + index * 0.5 for index in range(21)] + [130, 131, 132]),
+    }
+    metadata_by_label = {
+        "A": {"label": "A", "code": "510001", "kind": "etf", "name": "AETF"},
+        "B": {"label": "B", "code": "510002", "kind": "etf", "name": "BETF"},
+    }
+
+    result = module.replay_rotation_strategy(
+        series_by_label=series_by_label,
+        metadata_by_label=metadata_by_label,
+        strategy_config={"lookback_days": 20, "holdings_num": 1},
+    )
+
+    assert round(float(result["trades"][1]["from_20d_return"]), 4) == 0.1980
+
+
+def test_replay_rotation_strategy_records_explicit_no_candidate_days():
+    series_by_label = {
+        "A": _make_series("A", [120 - index for index in range(24)]),
+    }
+    metadata_by_label = {
+        "A": {"label": "A", "code": "510001", "kind": "etf", "name": "AETF"},
+    }
+
+    result = module.replay_rotation_strategy(
+        series_by_label=series_by_label,
+        metadata_by_label=metadata_by_label,
+        strategy_config={"lookback_days": 20, "holdings_num": 1},
+    )
+
+    assert [row["signal_date"] for row in result["daily_positions"]] == [
+        "2026-02-21",
+        "2026-02-22",
+        "2026-02-23",
+    ]
+    assert all(row["holding_symbol"] == "" for row in result["daily_positions"])
+    assert all(row["daily_return"] == 0.0 for row in result["daily_positions"])
+    assert all(row["strategy_nav"] == 1.0 for row in result["daily_positions"])
 
 
 def test_run_backtest_writes_required_artifacts():

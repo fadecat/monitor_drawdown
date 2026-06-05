@@ -12,6 +12,18 @@ import run_etf_rotation_strategy as runner
 DEFAULT_OUTPUT_ROOT = Path(".test_artifacts/etf_rotation_backtest")
 
 
+def _normalize_series_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    normalized_records: list[dict[str, Any]] = []
+    for record in records:
+        date = str(record.get("date") or "").strip()
+        if not date:
+            continue
+        normalized_record = dict(record)
+        normalized_record["date"] = date
+        normalized_records.append(normalized_record)
+    return sorted(normalized_records, key=lambda item: str(item["date"]))
+
+
 def _records_to_close_by_date(records: list[dict[str, Any]]) -> dict[str, float]:
     close_by_date: dict[str, float] = {}
     for record in records:
@@ -46,6 +58,39 @@ def _calculate_max_drawdown(nav_values: list[float]) -> float:
         if drawdown < max_drawdown:
             max_drawdown = drawdown
     return max_drawdown
+
+
+def _calculate_history_return(
+    records: list[dict[str, Any]],
+    lookback_days: int,
+) -> float | None:
+    if len(records) < lookback_days + 1:
+        return None
+
+    closes: list[float] = []
+    for row in records[-(lookback_days + 1):]:
+        raw_close = row.get("close")
+        if raw_close in {None, ""}:
+            return None
+        try:
+            close_value = float(raw_close)
+        except (TypeError, ValueError):
+            return None
+        if not math.isfinite(close_value):
+            return None
+        closes.append(close_value)
+
+    return strategy.calculate_lookback_return(
+        closes=closes,
+        lookback_days=lookback_days,
+    )
+
+
+def _find_next_date(dates: list[str], current_date: str) -> str | None:
+    for date_text in dates:
+        if date_text > current_date:
+            return date_text
+    return None
 
 
 def _build_holding_periods(
@@ -113,36 +158,89 @@ def replay_rotation_strategy(
     metadata_by_label: dict[str, dict[str, Any]],
     strategy_config: dict[str, Any],
 ) -> dict[str, Any]:
-    close_by_label_and_date = {
-        label: _records_to_close_by_date(records)
+    lookback_days = int(strategy_config["lookback_days"])
+    series_records_by_label = {
+        label: _normalize_series_records(records)
         for label, records in series_by_label.items()
     }
-    close_date_sets = [set(close_map.keys()) for close_map in close_by_label_and_date.values() if close_map]
-    common_dates = sorted(set.intersection(*close_date_sets)) if close_date_sets else []
-    lookback_days = int(strategy_config["lookback_days"])
+    close_by_label_and_date = {
+        label: _records_to_close_by_date(records)
+        for label, records in series_records_by_label.items()
+    }
+    signal_dates = sorted(
+        {
+            str(record["date"])
+            for records in series_records_by_label.values()
+            if records
+            for record in records
+        }
+    )
 
     daily_rankings: list[dict[str, Any]] = []
     daily_positions: list[dict[str, Any]] = []
     trades: list[dict[str, Any]] = []
     nav_values = [1.0]
     strategy_nav = 1.0
+    peak_nav = 1.0
     previous_symbol: str | None = None
+    previous_label: str | None = None
     previous_name: str | None = None
 
-    for date_index in range(lookback_days, len(common_dates) - 1):
-        signal_date = common_dates[date_index]
-        position_date = common_dates[date_index + 1]
+    start_signal_date: str | None = None
+    for signal_date in signal_dates:
+        if any(
+            signal_date in close_by_label_and_date.get(label, {})
+            and len(
+                [
+                    record
+                    for record in series_records_by_label.get(label, [])
+                    if str(record.get("date") or "") <= signal_date
+                ]
+            )
+            >= lookback_days + 1
+            for label in series_records_by_label
+        ):
+            start_signal_date = signal_date
+            break
+
+    if start_signal_date is None:
+        return {
+            "daily_rankings": [],
+            "daily_positions": [],
+            "trades": [],
+            "holding_periods": [],
+            "summary": {
+                "start_date": None,
+                "end_date": None,
+                "trading_days": 0,
+                "trade_count": 0,
+                "final_nav": 1.0,
+                "total_return": 0.0,
+                "annualized_return": 0.0,
+                "max_drawdown": 0.0,
+                "win_rate": 0.0,
+            },
+        }
+
+    start_index = signal_dates.index(start_signal_date)
+    for date_index in range(start_index, len(signal_dates) - 1):
+        signal_date = signal_dates[date_index]
+        default_position_date = signal_dates[date_index + 1]
         candidates: list[dict[str, Any]] = []
 
         for label, metadata in metadata_by_label.items():
+            series_records = series_records_by_label.get(label, [])
             history_records = [
-                {
-                    "date": date_text,
-                    "close": close_by_label_and_date[label][date_text],
-                    "label": label,
-                }
-                for date_text in common_dates[: date_index + 1]
+                record
+                for record in series_records
+                if str(record.get("date") or "").strip() <= signal_date
             ]
+            if not history_records:
+                continue
+            if str(history_records[-1].get("date") or "").strip() != signal_date:
+                continue
+            if signal_date not in close_by_label_and_date.get(label, {}):
+                continue
 
             latest_snapshot = {
                 "label": label,
@@ -186,21 +284,77 @@ def replay_rotation_strategy(
             if isinstance(selected_snapshot, dict)
             else {}
         )
-        selected_label = selected.get("label") if isinstance(selected, dict) else None
-        selected_symbol = selected_primary.get("code") if isinstance(selected_primary, dict) else None
+        selected_label = (
+            str(selected.get("label") or "").strip()
+            if isinstance(selected, dict)
+            else ""
+        )
+        selected_symbol = (
+            str(selected_primary.get("code") or "").strip()
+            if isinstance(selected_primary, dict)
+            else ""
+        )
+        selected_name = (
+            str(selected_primary.get("name") or "").strip()
+            if isinstance(selected_primary, dict)
+            else ""
+        )
 
-        if selected_label is None or selected_symbol is None:
+        previous_return = ""
+        if previous_label:
+            previous_history = [
+                record
+                for record in series_records_by_label.get(previous_label, [])
+                if str(record.get("date") or "").strip() <= signal_date
+            ]
+            if (
+                previous_history
+                and str(previous_history[-1].get("date") or "").strip() == signal_date
+            ):
+                computed_return = _calculate_history_return(
+                    previous_history,
+                    lookback_days=lookback_days,
+                )
+                if computed_return is not None:
+                    previous_return = computed_return
+
+        if not selected_label or not selected_symbol:
+            if previous_symbol:
+                trades.append(
+                    {
+                        "signal_date": signal_date,
+                        "from_symbol": previous_symbol or "",
+                        "from_name": previous_name or "",
+                        "to_symbol": "",
+                        "to_name": "",
+                        "reason": "no_qualified_candidate",
+                        "from_20d_return": previous_return,
+                        "to_20d_return": "",
+                        "rank_1_symbol": "",
+                    }
+                )
+
+            nav_values.append(strategy_nav)
+            peak_nav = max(peak_nav, strategy_nav)
+            drawdown = strategy_nav / peak_nav - 1.0 if peak_nav > 0 else 0.0
+            daily_positions.append(
+                {
+                    "date": default_position_date,
+                    "signal_date": signal_date,
+                    "holding_label": "",
+                    "holding_symbol": "",
+                    "holding_name": "",
+                    "daily_return": 0.0,
+                    "strategy_nav": strategy_nav,
+                    "drawdown": drawdown,
+                    "selected_20d_return": "",
+                    "selection_reason": portfolio_decision.get("selection_reason"),
+                }
+            )
+            previous_symbol = None
+            previous_label = None
+            previous_name = None
             continue
-
-        daily_return = 0.0
-        signal_close = close_by_label_and_date.get(selected_label, {}).get(signal_date)
-        next_close = close_by_label_and_date.get(selected_label, {}).get(position_date)
-        if signal_close is not None and next_close is not None and signal_close > 0:
-            daily_return = next_close / signal_close - 1.0
-
-        strategy_nav *= 1.0 + daily_return
-        nav_values.append(strategy_nav)
-        drawdown = strategy_nav / max(nav_values) - 1.0
 
         if selected_symbol != previous_symbol:
             trades.append(
@@ -209,13 +363,26 @@ def replay_rotation_strategy(
                     "from_symbol": previous_symbol or "",
                     "from_name": previous_name or "",
                     "to_symbol": selected_symbol,
-                    "to_name": selected_primary.get("name"),
+                    "to_name": selected_name,
                     "reason": "initial_entry" if previous_symbol is None else "top_rank_changed",
-                    "from_20d_return": "",
+                    "from_20d_return": previous_return,
                     "to_20d_return": selected.get("return_20d"),
                     "rank_1_symbol": selected_symbol,
                 }
             )
+
+        symbol_dates = sorted(close_by_label_and_date.get(selected_label, {}))
+        position_date = _find_next_date(symbol_dates, signal_date) or default_position_date
+        daily_return = 0.0
+        signal_close = close_by_label_and_date.get(selected_label, {}).get(signal_date)
+        next_close = close_by_label_and_date.get(selected_label, {}).get(position_date)
+        if signal_close is not None and next_close is not None and signal_close > 0:
+            daily_return = next_close / signal_close - 1.0
+
+        strategy_nav *= 1.0 + daily_return
+        nav_values.append(strategy_nav)
+        peak_nav = max(peak_nav, strategy_nav)
+        drawdown = strategy_nav / peak_nav - 1.0 if peak_nav > 0 else 0.0
 
         daily_positions.append(
             {
@@ -223,15 +390,17 @@ def replay_rotation_strategy(
                 "signal_date": signal_date,
                 "holding_label": selected_label,
                 "holding_symbol": selected_symbol,
-                "holding_name": selected_primary.get("name") if isinstance(selected_primary, dict) else None,
+                "holding_name": selected_name,
                 "daily_return": daily_return,
                 "strategy_nav": strategy_nav,
                 "drawdown": drawdown,
                 "selected_20d_return": selected.get("return_20d") if isinstance(selected, dict) else None,
+                "selection_reason": portfolio_decision.get("selection_reason"),
             }
         )
         previous_symbol = selected_symbol
-        previous_name = selected_primary.get("name")
+        previous_label = selected_label
+        previous_name = selected_name
 
     holding_periods = _build_holding_periods(daily_positions)
     trading_days = len(daily_positions)
