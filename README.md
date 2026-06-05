@@ -218,6 +218,39 @@ python .\send_style_rotation_etf_email.py
 
 对应的 GitHub Actions workflow 为 `.github/workflows/style_rotation_etf_email.yml`。
 
+## ETF轮动交互预览
+
+如果你已经生成过 ETF 轮动回测产物，想在本地浏览器里交互查看：
+
+```powershell
+python .\preview_etf_rotation_interactive.py
+```
+
+默认会输出到：
+
+```text
+.\.test_artifacts\etf_rotation_backtest\interactive_rotation_preview.html
+```
+
+这个页面会把：
+
+- `策略净值`
+- `静止线(1.0)`
+- 当前轮动标的池的归一化曲线
+
+放在同一张交互图里，支持：
+
+- legend 点击显隐
+- 鼠标滚轮缩放
+- 鼠标拖动平移
+- 底部滑块快速切换时间窗口
+
+说明：
+
+- 标的曲线仅用于显示对齐，会从回测起点归一化到 `1.0`
+- 对缺失交易日会做前值延续，方便在统一时间轴上观察走势
+- 回测计算口径本身不受这个预览页影响
+
 安装依赖：
 
 ```powershell

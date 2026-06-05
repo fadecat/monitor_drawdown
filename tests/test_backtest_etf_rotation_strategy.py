@@ -162,6 +162,32 @@ def test_replay_rotation_strategy_populates_from_20d_return_on_switch():
     assert round(float(result["trades"][1]["from_20d_return"]), 4) == 0.1980
 
 
+def test_replay_rotation_strategy_waits_until_all_non_empty_series_are_mature():
+    series_by_label = {
+        "A": _make_dated_series(
+            "A",
+            [(f"2026-02-{index:02d}", 100.0 + index) for index in range(1, 11)],
+        ),
+        "B": _make_dated_series(
+            "B",
+            [(f"2026-02-{index:02d}", 200.0 + index) for index in range(5, 11)],
+        ),
+    }
+    metadata_by_label = {
+        "A": {"label": "A", "code": "510001", "kind": "etf", "name": "AETF"},
+        "B": {"label": "B", "code": "510002", "kind": "etf", "name": "BETF"},
+    }
+
+    result = module.replay_rotation_strategy(
+        series_by_label=series_by_label,
+        metadata_by_label=metadata_by_label,
+        strategy_config={"lookback_days": 3, "holdings_num": 1},
+    )
+
+    assert result["daily_positions"][0]["signal_date"] == "2026-02-08"
+    assert result["daily_positions"][0]["date"] == "2026-02-09"
+
+
 def test_replay_rotation_strategy_records_explicit_no_candidate_days():
     series_by_label = {
         "A": _make_series("A", [120 - index for index in range(24)]),
@@ -184,6 +210,141 @@ def test_replay_rotation_strategy_records_explicit_no_candidate_days():
     assert all(row["holding_symbol"] == "" for row in result["daily_positions"])
     assert all(row["daily_return"] == 0.0 for row in result["daily_positions"])
     assert all(row["strategy_nav"] == 1.0 for row in result["daily_positions"])
+
+
+def test_replay_rotation_strategy_keeps_global_position_dates_monotonic():
+    series_by_label = {
+        "A": _make_dated_series(
+            "A",
+            [(f"2026-02-{index:02d}", 99 + index) for index in range(1, 23)]
+            + [("2026-02-24", 140.0)],
+        ),
+        "B": _make_dated_series(
+            "B",
+            [(f"2026-02-{index:02d}", 100.0 + (index - 1) * 0.1) for index in range(1, 25)],
+        ),
+    }
+    metadata_by_label = {
+        "A": {"label": "A", "code": "510001", "kind": "etf", "name": "AETF"},
+        "B": {"label": "B", "code": "510002", "kind": "etf", "name": "BETF"},
+    }
+
+    result = module.replay_rotation_strategy(
+        series_by_label=series_by_label,
+        metadata_by_label=metadata_by_label,
+        strategy_config={"lookback_days": 20, "holdings_num": 1},
+    )
+
+    dates = [row["date"] for row in result["daily_positions"]]
+
+    assert dates == ["2026-02-22", "2026-02-23", "2026-02-24"]
+    assert result["daily_positions"][1]["holding_symbol"] == "510001"
+    assert result["daily_positions"][1]["daily_return"] == 0.0
+    assert len(set(dates)) == len(dates)
+
+
+def test_build_yearly_returns_groups_daily_positions_by_calendar_year():
+    rows = [
+        {
+            "date": "2025-12-30",
+            "daily_return": 0.10,
+            "strategy_nav": 1.10,
+        },
+        {
+            "date": "2025-12-31",
+            "daily_return": 0.0,
+            "strategy_nav": 1.10,
+        },
+        {
+            "date": "2026-01-02",
+            "daily_return": -0.10,
+            "strategy_nav": 0.99,
+        },
+    ]
+
+    result = module.build_yearly_returns(rows)
+
+    assert result == [
+        {
+            "year": "2025",
+            "trading_days": 2,
+            "start_nav": 1.0,
+            "end_nav": 1.1,
+            "annual_return": 0.1,
+        },
+        {
+            "year": "2026",
+            "trading_days": 1,
+            "start_nav": 1.1,
+            "end_nav": 0.99,
+            "annual_return": -0.1,
+        },
+    ]
+
+
+def test_build_symbol_contributions_aggregates_holding_periods_by_symbol():
+    rows = [
+        {
+            "start_date": "2026-01-01",
+            "end_date": "2026-01-05",
+            "symbol": "510001",
+            "name": "AETF",
+            "holding_days": 3,
+            "period_return": 0.10,
+            "contribution_to_total_return": 0.10,
+        },
+        {
+            "start_date": "2026-01-06",
+            "end_date": "2026-01-10",
+            "symbol": "510001",
+            "name": "AETF",
+            "holding_days": 4,
+            "period_return": -0.05,
+            "contribution_to_total_return": -0.04,
+        },
+        {
+            "start_date": "2026-01-11",
+            "end_date": "2026-01-12",
+            "symbol": "",
+            "name": "",
+            "holding_days": 2,
+            "period_return": 0.0,
+            "contribution_to_total_return": 0.0,
+        },
+    ]
+
+    result = module.build_symbol_contributions(rows)
+
+    assert result == [
+        {
+            "symbol": "510001",
+            "name": "AETF",
+            "holding_periods": 2,
+            "holding_days": 7,
+            "total_contribution": 0.06,
+            "average_period_return": 0.025,
+            "best_period_return": 0.10,
+            "best_period_start_date": "2026-01-01",
+            "best_period_end_date": "2026-01-05",
+            "worst_period_return": -0.05,
+            "worst_period_start_date": "2026-01-06",
+            "worst_period_end_date": "2026-01-10",
+        },
+        {
+            "symbol": "CASH",
+            "name": "空仓",
+            "holding_periods": 1,
+            "holding_days": 2,
+            "total_contribution": 0.0,
+            "average_period_return": 0.0,
+            "best_period_return": 0.0,
+            "best_period_start_date": "2026-01-11",
+            "best_period_end_date": "2026-01-12",
+            "worst_period_return": 0.0,
+            "worst_period_start_date": "2026-01-11",
+            "worst_period_end_date": "2026-01-12",
+        },
+    ]
 
 
 def test_run_backtest_writes_required_artifacts():
@@ -230,4 +391,6 @@ strategy:
     assert (root / "out" / "daily_positions.csv").exists()
     assert (root / "out" / "daily_rankings.csv").exists()
     assert (root / "out" / "holding_periods.csv").exists()
+    assert (root / "out" / "yearly_returns.csv").exists()
+    assert (root / "out" / "symbol_contributions.csv").exists()
     assert (root / "out" / "backtest_summary.md").exists()

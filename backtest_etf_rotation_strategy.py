@@ -86,11 +86,19 @@ def _calculate_history_return(
     )
 
 
-def _find_next_date(dates: list[str], current_date: str) -> str | None:
-    for date_text in dates:
-        if date_text > current_date:
-            return date_text
-    return None
+def _count_history_records_through_date(
+    records: list[dict[str, Any]],
+    signal_date: str,
+) -> int:
+    return sum(
+        1
+        for record in records
+        if str(record.get("date") or "").strip() <= signal_date
+    )
+
+
+def _clean_float(value: float) -> float:
+    return round(float(value), 12)
 
 
 def _build_holding_periods(
@@ -153,6 +161,129 @@ def _build_holding_periods(
     return periods
 
 
+def build_yearly_returns(
+    daily_positions: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    yearly_returns: list[dict[str, Any]] = []
+    current_year: dict[str, Any] | None = None
+    previous_nav = 1.0
+
+    for row in daily_positions:
+        date_text = str(row.get("date") or "").strip()
+        if not date_text:
+            continue
+        year = date_text[:4]
+        strategy_nav = float(row.get("strategy_nav") or previous_nav)
+
+        if current_year is None or current_year["year"] != year:
+            if current_year is not None:
+                start_nav = float(current_year["start_nav"])
+                end_nav = float(current_year["end_nav"])
+                current_year["annual_return"] = _clean_float(
+                    end_nav / start_nav - 1.0 if start_nav > 0 else 0.0
+                )
+                yearly_returns.append(current_year)
+
+            current_year = {
+                "year": year,
+                "trading_days": 0,
+                "start_nav": _clean_float(previous_nav),
+                "end_nav": _clean_float(strategy_nav),
+            }
+
+        current_year["trading_days"] = int(current_year["trading_days"]) + 1
+        current_year["end_nav"] = _clean_float(strategy_nav)
+        previous_nav = strategy_nav
+
+    if current_year is not None:
+        start_nav = float(current_year["start_nav"])
+        end_nav = float(current_year["end_nav"])
+        current_year["annual_return"] = _clean_float(
+            end_nav / start_nav - 1.0 if start_nav > 0 else 0.0
+        )
+        yearly_returns.append(current_year)
+
+    return yearly_returns
+
+
+def build_symbol_contributions(
+    holding_periods: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    aggregated: dict[tuple[str, str], dict[str, Any]] = {}
+
+    for row in holding_periods:
+        symbol = str(row.get("symbol") or "").strip() or "CASH"
+        name = str(row.get("name") or "").strip() or "空仓"
+        key = (symbol, name)
+        period_return = float(row.get("period_return") or 0.0)
+        contribution = float(row.get("contribution_to_total_return") or 0.0)
+        holding_days = int(row.get("holding_days") or 0)
+
+        if key not in aggregated:
+            aggregated[key] = {
+                "symbol": symbol,
+                "name": name,
+                "holding_periods": 0,
+                "holding_days": 0,
+                "total_contribution": 0.0,
+                "_total_period_return": 0.0,
+                "best_period_return": period_return,
+                "best_period_start_date": str(row.get("start_date") or "").strip(),
+                "best_period_end_date": str(row.get("end_date") or "").strip(),
+                "worst_period_return": period_return,
+                "worst_period_start_date": str(row.get("start_date") or "").strip(),
+                "worst_period_end_date": str(row.get("end_date") or "").strip(),
+            }
+
+        item = aggregated[key]
+        item["holding_periods"] = int(item["holding_periods"]) + 1
+        item["holding_days"] = int(item["holding_days"]) + holding_days
+        item["total_contribution"] = float(item["total_contribution"]) + contribution
+        item["_total_period_return"] = float(item["_total_period_return"]) + period_return
+
+        if period_return > float(item["best_period_return"]):
+            item["best_period_return"] = period_return
+            item["best_period_start_date"] = str(row.get("start_date") or "").strip()
+            item["best_period_end_date"] = str(row.get("end_date") or "").strip()
+
+        if period_return < float(item["worst_period_return"]):
+            item["worst_period_return"] = period_return
+            item["worst_period_start_date"] = str(row.get("start_date") or "").strip()
+            item["worst_period_end_date"] = str(row.get("end_date") or "").strip()
+
+    rows: list[dict[str, Any]] = []
+    for item in aggregated.values():
+        periods_count = int(item["holding_periods"])
+        rows.append(
+            {
+                "symbol": item["symbol"],
+                "name": item["name"],
+                "holding_periods": periods_count,
+                "holding_days": int(item["holding_days"]),
+                "total_contribution": _clean_float(float(item["total_contribution"])),
+                "average_period_return": _clean_float(
+                    float(item["_total_period_return"]) / periods_count
+                    if periods_count
+                    else 0.0
+                ),
+                "best_period_return": _clean_float(float(item["best_period_return"])),
+                "best_period_start_date": item["best_period_start_date"],
+                "best_period_end_date": item["best_period_end_date"],
+                "worst_period_return": _clean_float(float(item["worst_period_return"])),
+                "worst_period_start_date": item["worst_period_start_date"],
+                "worst_period_end_date": item["worst_period_end_date"],
+            }
+        )
+
+    return sorted(
+        rows,
+        key=lambda item: (
+            -float(item["total_contribution"]),
+            str(item["symbol"]),
+        ),
+    )
+
+
 def replay_rotation_strategy(
     series_by_label: dict[str, list[dict[str, Any]]],
     metadata_by_label: dict[str, dict[str, Any]],
@@ -187,18 +318,17 @@ def replay_rotation_strategy(
     previous_name: str | None = None
 
     start_signal_date: str | None = None
+    active_labels = [
+        label for label, records in series_records_by_label.items() if records
+    ]
     for signal_date in signal_dates:
-        if any(
-            signal_date in close_by_label_and_date.get(label, {})
-            and len(
-                [
-                    record
-                    for record in series_records_by_label.get(label, [])
-                    if str(record.get("date") or "") <= signal_date
-                ]
+        if active_labels and all(
+            _count_history_records_through_date(
+                series_records_by_label.get(label, []),
+                signal_date,
             )
             >= lookback_days + 1
-            for label in series_records_by_label
+            for label in active_labels
         ):
             start_signal_date = signal_date
             break
@@ -371,8 +501,7 @@ def replay_rotation_strategy(
                 }
             )
 
-        symbol_dates = sorted(close_by_label_and_date.get(selected_label, {}))
-        position_date = _find_next_date(symbol_dates, signal_date) or default_position_date
+        position_date = default_position_date
         daily_return = 0.0
         signal_close = close_by_label_and_date.get(selected_label, {}).get(signal_date)
         next_close = close_by_label_and_date.get(selected_label, {}).get(position_date)
@@ -485,11 +614,15 @@ def run_backtest(
         metadata_by_label=metadata_by_label,
         strategy_config=dict(config.get("strategy") or {}),
     )
+    yearly_returns = build_yearly_returns(result["daily_positions"])
+    symbol_contributions = build_symbol_contributions(result["holding_periods"])
 
     _write_csv(resolved_output_root / "trades.csv", result["trades"])
     _write_csv(resolved_output_root / "daily_positions.csv", result["daily_positions"])
     _write_csv(resolved_output_root / "daily_rankings.csv", result["daily_rankings"])
     _write_csv(resolved_output_root / "holding_periods.csv", result["holding_periods"])
+    _write_csv(resolved_output_root / "yearly_returns.csv", yearly_returns)
+    _write_csv(resolved_output_root / "symbol_contributions.csv", symbol_contributions)
 
     summary_payload = result["summary"]
     summary_lines = [
@@ -513,6 +646,8 @@ def run_backtest(
 
     return {
         "config": config,
+        "yearly_returns": yearly_returns,
+        "symbol_contributions": symbol_contributions,
         **result,
     }
 
