@@ -20,6 +20,51 @@ def _make_series(label: str, closes: list[float]) -> list[dict[str, float | str]
     ]
 
 
+def test_determine_trade_reason_uses_explicit_v2_transition_enums():
+    defensive_labels = {"银华日利ETF"}
+
+    assert (
+        module.determine_trade_reason(
+            previous_label=None,
+            selected_label="A",
+            defensive_labels=defensive_labels,
+        )
+        == "initial_entry_risk"
+    )
+    assert (
+        module.determine_trade_reason(
+            previous_label=None,
+            selected_label="银华日利ETF",
+            defensive_labels=defensive_labels,
+        )
+        == "initial_entry_defensive"
+    )
+    assert (
+        module.determine_trade_reason(
+            previous_label="A",
+            selected_label="B",
+            defensive_labels=defensive_labels,
+        )
+        == "risk_to_risk_rotation"
+    )
+    assert (
+        module.determine_trade_reason(
+            previous_label="A",
+            selected_label="银华日利ETF",
+            defensive_labels=defensive_labels,
+        )
+        == "risk_to_defensive_fallback"
+    )
+    assert (
+        module.determine_trade_reason(
+            previous_label="银华日利ETF",
+            selected_label="A",
+            defensive_labels=defensive_labels,
+        )
+        == "defensive_to_risk_reentry"
+    )
+
+
 def test_replay_rotation_v2_uses_t_plus_1_position_dates_and_defensive_fallback():
     series_by_label = {
         "风险A": _make_series("风险A", [125.0 - index for index in range(26)]),
@@ -54,6 +99,7 @@ def test_replay_rotation_v2_uses_t_plus_1_position_dates_and_defensive_fallback(
     assert result["daily_positions"][0]["date"] == "2026-04-26"
     assert result["daily_positions"][0]["holding_symbol"] == "511880"
     assert result["daily_positions"][0]["selection_reason"] == "fallback_defensive_asset"
+    assert result["trades"][0]["reason"] == "initial_entry_defensive"
 
 
 def test_replay_rotation_v2_writes_daily_candidate_metrics_and_rankings():
@@ -99,6 +145,7 @@ def test_replay_rotation_v2_writes_daily_candidate_metrics_and_rankings():
     assert ranking_rows[0]["rank"] == 1
     assert ranking_rows[0]["symbol"] == "510001"
     assert result["daily_positions"][0]["selection_reason"] == "top_ranked_risk_asset"
+    assert result["trades"][0]["reason"] == "initial_entry_risk"
 
 
 def test_run_backtest_v2_writes_required_stage1_outputs():

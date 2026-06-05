@@ -289,6 +289,23 @@ def _build_defensive_holding(
     return None
 
 
+def determine_trade_reason(
+    previous_label: str | None,
+    selected_label: str | None,
+    defensive_labels: set[str],
+) -> str:
+    previous_is_defensive = bool(previous_label) and previous_label in defensive_labels
+    selected_is_defensive = bool(selected_label) and selected_label in defensive_labels
+
+    if previous_label is None:
+        return "initial_entry_defensive" if selected_is_defensive else "initial_entry_risk"
+    if previous_is_defensive and not selected_is_defensive:
+        return "defensive_to_risk_reentry"
+    if not previous_is_defensive and selected_is_defensive:
+        return "risk_to_defensive_fallback"
+    return "risk_to_risk_rotation"
+
+
 def replay_rotation_strategy(
     series_by_label: dict[str, list[dict[str, Any]]],
     metadata_by_label: dict[str, dict[str, Any]],
@@ -490,14 +507,11 @@ def replay_rotation_strategy(
         )
 
         if selected_symbol != previous_symbol:
-            if previous_symbol is None:
-                trade_reason = "initial_entry"
-            elif selected_label in defensive_labels:
-                trade_reason = "fallback_defensive_asset"
-            elif previous_label in defensive_labels:
-                trade_reason = "exit_defensive_asset"
-            else:
-                trade_reason = "top_rank_changed"
+            trade_reason = determine_trade_reason(
+                previous_label=previous_label,
+                selected_label=selected_label,
+                defensive_labels=defensive_labels,
+            )
             trades.append(
                 {
                     "signal_date": signal_date,
