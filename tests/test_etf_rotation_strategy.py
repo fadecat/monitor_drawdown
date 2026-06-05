@@ -100,6 +100,73 @@ def test_build_rotation_candidate_rejects_invalid_close_data():
     assert candidate is None
 
 
+def test_build_rotation_candidate_rejects_gap_inside_latest_lookback_window():
+    candidate = module.build_rotation_candidate(
+        latest_snapshot={"label": "测试ETF"},
+        series_records=[
+            {"date": "2025-12-31", "close": 99.0},
+            {"date": "2026-01-01", "close": 100.0},
+            {"date": "2026-01-02", "close": 101.0},
+            {"date": "2026-01-03", "close": 102.0},
+            {"date": "2026-01-04", "close": 103.0},
+            {"date": "2026-01-05", "close": 104.0},
+            {"date": "2026-01-06", "close": 105.0},
+            {"date": "2026-01-07", "close": 106.0},
+            {"date": "2026-01-08", "close": 107.0},
+            {"date": "2026-01-09", "close": 108.0},
+            {"date": "2026-01-10", "close": ""},
+            {"date": "2026-01-11", "close": 110.0},
+            {"date": "2026-01-12", "close": 111.0},
+            {"date": "2026-01-13", "close": 112.0},
+            {"date": "2026-01-14", "close": 113.0},
+            {"date": "2026-01-15", "close": 114.0},
+            {"date": "2026-01-16", "close": 115.0},
+            {"date": "2026-01-17", "close": 116.0},
+            {"date": "2026-01-18", "close": 117.0},
+            {"date": "2026-01-19", "close": 118.0},
+            {"date": "2026-01-20", "close": 119.0},
+            {"date": "2026-01-21", "close": 120.0},
+        ],
+        strategy_config={"lookback_days": 20},
+    )
+
+    assert candidate is None
+
+
+def test_build_rotation_candidate_ignores_invalid_rows_outside_latest_lookback_window():
+    candidate = module.build_rotation_candidate(
+        latest_snapshot={"label": "测试ETF"},
+        series_records=[
+            {"date": "2025-12-30", "close": "bad"},
+            {"date": "2026-01-01", "close": 100.0},
+            {"date": "2026-01-02", "close": 101.0},
+            {"date": "2026-01-03", "close": 102.0},
+            {"date": "2026-01-04", "close": 103.0},
+            {"date": "2026-01-05", "close": 104.0},
+            {"date": "2026-01-06", "close": 105.0},
+            {"date": "2026-01-07", "close": 106.0},
+            {"date": "2026-01-08", "close": 107.0},
+            {"date": "2026-01-09", "close": 108.0},
+            {"date": "2026-01-10", "close": 109.0},
+            {"date": "2026-01-11", "close": 110.0},
+            {"date": "2026-01-12", "close": 111.0},
+            {"date": "2026-01-13", "close": 112.0},
+            {"date": "2026-01-14", "close": 113.0},
+            {"date": "2026-01-15", "close": 114.0},
+            {"date": "2026-01-16", "close": 115.0},
+            {"date": "2026-01-17", "close": 116.0},
+            {"date": "2026-01-18", "close": 117.0},
+            {"date": "2026-01-19", "close": 118.0},
+            {"date": "2026-01-20", "close": 119.0},
+            {"date": "2026-01-21", "close": 120.0},
+        ],
+        strategy_config={"lookback_days": 20},
+    )
+
+    assert candidate is not None
+    assert round(candidate["return_20d"], 4) == 0.2000
+
+
 def test_build_rotation_candidate_returns_label_and_20d_return():
     candidate = module.build_rotation_candidate(
         latest_snapshot={"label": "测试ETF"},

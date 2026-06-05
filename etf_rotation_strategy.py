@@ -27,11 +27,16 @@ def build_rotation_candidate(
     series_records: list[dict[str, Any]],
     strategy_config: dict[str, Any],
 ) -> dict[str, Any] | None:
+    lookback_days = int(strategy_config["lookback_days"])
+    window_records = series_records[-(lookback_days + 1):]
+    if len(window_records) < lookback_days + 1:
+        return None
+
     closes: list[float] = []
-    for row in series_records:
+    for row in window_records:
         raw_close = row.get("close")
         if raw_close in {None, ""}:
-            continue
+            return None
         try:
             close_value = float(raw_close)
         except (TypeError, ValueError):
@@ -42,7 +47,7 @@ def build_rotation_candidate(
 
     return_20d = calculate_lookback_return(
         closes=closes,
-        lookback_days=int(strategy_config["lookback_days"]),
+        lookback_days=lookback_days,
     )
     if return_20d is None or return_20d <= 0:
         return None
