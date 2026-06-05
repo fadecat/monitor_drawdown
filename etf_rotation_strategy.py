@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from typing import Any
 
 
@@ -12,9 +13,13 @@ def calculate_lookback_return(
 
     base_close = float(closes[-lookback_days - 1])
     latest_close = float(closes[-1])
-    if base_close <= 0:
+    if not math.isfinite(base_close) or not math.isfinite(latest_close) or base_close <= 0:
         return None
-    return latest_close / base_close - 1.0
+
+    lookback_return = latest_close / base_close - 1.0
+    if not math.isfinite(lookback_return):
+        return None
+    return lookback_return
 
 
 def build_rotation_candidate(
@@ -22,7 +27,19 @@ def build_rotation_candidate(
     series_records: list[dict[str, Any]],
     strategy_config: dict[str, Any],
 ) -> dict[str, Any] | None:
-    closes = [float(row["close"]) for row in series_records if row.get("close") not in {None, ""}]
+    closes: list[float] = []
+    for row in series_records:
+        raw_close = row.get("close")
+        if raw_close in {None, ""}:
+            continue
+        try:
+            close_value = float(raw_close)
+        except (TypeError, ValueError):
+            return None
+        if not math.isfinite(close_value):
+            return None
+        closes.append(close_value)
+
     return_20d = calculate_lookback_return(
         closes=closes,
         lookback_days=int(strategy_config["lookback_days"]),
