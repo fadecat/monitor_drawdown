@@ -50,10 +50,13 @@ def test_load_rotation_config_reads_simple_20d_strategy():
             "kind": "etf",
         },
     ]
-
-    assert config["targets"] == expected_targets
-    assert config.get("defensive_targets") == []
-    assert config["strategy"] == {
-        "lookback_days": 20,
-        "holdings_num": 1,
+    expected_config = {
+        "targets": expected_targets,
+        "defensive_targets": [],
+        "strategy": {
+            "lookback_days": 20,
+            "holdings_num": 1,
+        },
     }
+
+    assert config == expected_config
