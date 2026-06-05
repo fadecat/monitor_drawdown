@@ -30,6 +30,33 @@ def collect_rotation_inputs(
     return sources.collect_trend_metrics(targets=targets, output_root=output_root)
 
 
+def get_expected_snapshot_labels(config: dict[str, Any]) -> list[str]:
+    labels: list[str] = []
+    for target in list(config.get("targets") or []) + list(config.get("defensive_targets") or []):
+        label = str(target.get("label") or "").strip()
+        if label:
+            labels.append(label)
+    return labels
+
+
+def validate_snapshot_coverage(
+    config: dict[str, Any],
+    snapshots: list[dict[str, Any]],
+) -> None:
+    expected_labels = get_expected_snapshot_labels(config)
+    snapshot_labels = {
+        str(snapshot.get("label") or "").strip()
+        for snapshot in snapshots
+        if str(snapshot.get("label") or "").strip()
+    }
+    missing_labels = [label for label in expected_labels if label not in snapshot_labels]
+    if missing_labels:
+        missing_display = ", ".join(missing_labels)
+        raise ValueError(
+            f"missing snapshots for configured targets: {missing_display}"
+        )
+
+
 def write_json(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
@@ -71,8 +98,13 @@ def build_ranked_candidates(
         )
         if candidate is None:
             continue
-        candidate["selected_primary"] = selected_primary
-        candidates.append(candidate)
+        candidates.append(
+            {
+                "label": candidate["label"],
+                "return_20d": candidate["return_20d"],
+                "selected_primary": selected_primary,
+            }
+        )
 
     return strategy.rank_candidates(candidates)
 
@@ -117,6 +149,7 @@ def run(
     resolved_output_root.mkdir(parents=True, exist_ok=True)
 
     snapshots = collect_rotation_inputs(config, output_root=resolved_source_root)
+    validate_snapshot_coverage(config, snapshots)
     strategy_config = dict(config.get("strategy") or {})
     ranked_candidates = build_ranked_candidates(
         snapshots=snapshots,

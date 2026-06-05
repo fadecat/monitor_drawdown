@@ -1,5 +1,8 @@
 import shutil
 from pathlib import Path
+import json
+
+import pytest
 
 import run_etf_rotation_strategy as module
 
@@ -130,6 +133,77 @@ strategy:
     assert result["portfolio_decision"]["selection_reason"] == "top_ranked_candidate"
     assert (root / "out" / "ranked_candidates.json").exists()
     assert (root / "out" / "portfolio_decision.json").exists()
+    ranked_candidates_payload = json.loads(
+        (root / "out" / "ranked_candidates.json").read_text(encoding="utf-8")
+    )
+    portfolio_decision_payload = json.loads(
+        (root / "out" / "portfolio_decision.json").read_text(encoding="utf-8")
+    )
+    summary_text = (root / "out" / "summary.md").read_text(encoding="utf-8")
+
+    assert [item["label"] for item in ranked_candidates_payload] == ["A", "B"]
+    assert round(ranked_candidates_payload[0]["return_20d"], 4) == 0.2
+    assert round(ranked_candidates_payload[1]["return_20d"], 4) == 0.04
+    assert ranked_candidates_payload[0]["selected_primary"] == {
+        "kind": "etf",
+        "code": "510001",
+        "name": "AETF",
+    }
+    assert ranked_candidates_payload[1]["selected_primary"] == {
+        "kind": "etf",
+        "code": "510002",
+        "name": "BETF",
+    }
+    assert "latest_snapshot" not in ranked_candidates_payload[0]
+    assert "latest_snapshot" not in ranked_candidates_payload[1]
+    assert portfolio_decision_payload["selection_reason"] == "top_ranked_candidate"
+    assert [item["label"] for item in portfolio_decision_payload["selected_holdings"]] == [
+        "A"
+    ]
+    assert round(portfolio_decision_payload["selected_holdings"][0]["return_20d"], 4) == 0.2
+    assert "# ETF Rotation Strategy" in summary_text
+    assert "selected=A" in summary_text
+    assert "selection_reason=top_ranked_candidate" in summary_text
+    assert "- A: return_20d=0.2000" in summary_text
+
+
+def test_run_rotation_strategy_rejects_missing_configured_target_snapshots(
+    monkeypatch,
+):
+    root = _make_workspace_tmp("rejects_missing_configured_target_snapshots")
+    config_path = root / "rotation.yaml"
+    config_path.write_text(
+        """
+targets:
+  - label: A
+    search_keywords: [A]
+  - label: B
+    search_keywords: [B]
+defensive_targets: []
+strategy:
+  lookback_days: 20
+  holdings_num: 1
+""".strip(),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        module,
+        "collect_rotation_inputs",
+        lambda config, output_root=None: [
+            {
+                "label": "A",
+                "selected_primary": {"kind": "etf", "code": "510001", "name": "AETF"},
+            }
+        ],
+    )
+
+    with pytest.raises(ValueError, match="B"):
+        module.run(
+            config_path=config_path,
+            output_root=root / "out",
+            source_output_root=root / "source",
+        )
 
 
 def test_build_summary_includes_v1_rankings_and_selection_reason():
