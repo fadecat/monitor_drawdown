@@ -14,6 +14,7 @@ env/
 !.env.local.example
 
 # Tooling caches
+.claude/
 .pytest_cache/
 .pytest_tmp/
 tmp-pytest/
@@ -40,6 +41,7 @@ email_preview_gemini.html
 email_preview_gemini_applied.html
 email_preview_ratio.html
 Snipaste_*.png
+image.png
 *.jpg
 tests/*.jpg
 tests/image.png
