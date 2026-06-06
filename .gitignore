@@ -45,6 +45,7 @@ image.png
 *.jpg
 tests/*.jpg
 tests/image.png
+tests/.tmp/
 
 # IDE / editor
 .vscode/

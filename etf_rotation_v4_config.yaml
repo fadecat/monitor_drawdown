@@ -1,0 +1,34 @@
+risk_targets:
+  - category: 权益
+    label: 国证成长100指数
+    search_keywords:
+      - 国证成长100指数
+    code: 980080.CN
+    kind: index
+  - category: 权益
+    label: 国证价值100指数
+    search_keywords:
+      - 国证价值100指数
+    code: 980081.CNI
+    kind: index
+
+defensive_targets:
+  - category: 防守
+    label: 银华日利ETF
+    search_keywords:
+      - 银华日利ETF
+    code: "511880"
+    kind: etf
+
+strategy:
+  lookback_days: 25                      # 中期趋势计算窗口，单位：交易日，用于 score_25
+  short_lookback_days: 10                 # 短期收益计算窗口，单位：交易日，用于短期确认 return_10d
+  annualization_days: 250                 # 年化天数，用于将斜率换算成年化收益
+  weight_start: 1.0                       # 中期加权回归起始权重（较早的日期权重）
+  weight_end: 2.0                         # 中期加权回归结束权重（最近日期权重，越近权重越大）
+  holdings_num: 1                          # 每次持仓数量，这里固定 Top1
+  short_confirmation_variant: v4_a         # 短期确认实验版本，v4_a 或 v4_b
+  short_confirmation_history_days: 252    # 用于短期确认的历史回看窗口，单位：交易日
+  short_confirmation_percentile_threshold: 0.4  # 短期确认通过的历史分位阈值（40%分位）
+  short_confirmation_absolute_floor: -0.02      # 短期确认绝对底线，不能跌超过 -2%
+  volatility_lookback_days: 20             # 计算波动率的窗口长度，单位：交易日，用于 V4-A 波动调整
