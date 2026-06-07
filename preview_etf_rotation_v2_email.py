@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+import backtest_etf_rotation_v2_strategy as backtest
 import run_etf_rotation_v2_strategy as runner
 
 
@@ -273,17 +274,30 @@ def collect_etf_rotation_v2_email_payloads(
     output_dir: Path = DEFAULT_OUTPUT_DIR,
     state_path: Path = DEFAULT_STATE_PATH,
 ) -> dict[str, Any]:
+    source_output_root = output_dir / "source"
     rotation_result = runner.run(
         output_root=output_dir / "rotation",
-        source_output_root=output_dir / "source",
+        source_output_root=source_output_root,
     )
+    backtest_error = None
+    try:
+        backtest_result = backtest.run_backtest(
+            source_output_root=source_output_root,
+            output_root=output_dir / "backtest",
+        )
+        equity_curve = backtest_result.get("daily_positions") or []
+    except Exception as exc:  # Net value curve must not block the daily signal email.
+        backtest_error = str(exc)
+        equity_curve = []
     previous_state = load_email_state(state_path)
     previous_holding_label = str(previous_state.get("last_holding_label") or "").strip() or None
     subject = build_email_subject(rotation_result, previous_holding_label)
-    html = build_email_html(rotation_result, previous_holding_label)
-    text = build_email_text(rotation_result, previous_holding_label)
+    html = build_email_html(rotation_result, previous_holding_label, equity_curve)
+    text = build_email_text(rotation_result, previous_holding_label, equity_curve)
     return {
         "rotation_result": rotation_result,
+        "equity_curve": equity_curve,
+        "backtest_error": backtest_error,
         "previous_state": previous_state,
         "next_state": build_next_state(rotation_result),
         "subject": subject,

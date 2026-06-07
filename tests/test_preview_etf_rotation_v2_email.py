@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import preview_etf_rotation_v2_email as module
 
@@ -124,6 +125,7 @@ def test_collect_payload_uses_previous_state_for_unchanged_subject(monkeypatch, 
         return _rotation_result()
 
     monkeypatch.setattr(module.runner, "run", fake_run)
+    monkeypatch.setattr(module.backtest, "run_backtest", lambda **kwargs: {"daily_positions": []})
 
     payload = module.collect_etf_rotation_v2_email_payloads(
         output_dir=tmp_path / "out",
@@ -142,6 +144,75 @@ def test_collect_payload_uses_previous_state_for_unchanged_subject(monkeypatch, 
     }
 
 
+def test_collect_payload_builds_equity_curve_from_same_source_data(monkeypatch, tmp_path: Path):
+    state_path = tmp_path / "state.json"
+    state_path.write_text('{"last_holding_label": "黄金ETF易方达"}', encoding="utf-8")
+    seen = {}
+
+    def fake_run(*, output_root, source_output_root):
+        seen["runner_output_root"] = output_root
+        seen["runner_source_output_root"] = source_output_root
+        return _rotation_result()
+
+    def fake_backtest(*, source_output_root, output_root):
+        seen["backtest_source_output_root"] = source_output_root
+        seen["backtest_output_root"] = output_root
+        return {
+            "daily_positions": [
+                {"date": "2026-06-01", "strategy_nav": 38.0},
+                {"date": "2026-06-02", "strategy_nav": 38.5},
+                {"date": "2026-06-03", "strategy_nav": 38.2},
+            ]
+        }
+
+    monkeypatch.setattr(module.runner, "run", fake_run)
+    monkeypatch.setattr(
+        module,
+        "backtest",
+        SimpleNamespace(run_backtest=fake_backtest),
+        raising=False,
+    )
+
+    payload = module.collect_etf_rotation_v2_email_payloads(
+        output_dir=tmp_path / "out",
+        state_path=state_path,
+    )
+
+    assert seen == {
+        "runner_output_root": tmp_path / "out" / "rotation",
+        "runner_source_output_root": tmp_path / "out" / "source",
+        "backtest_source_output_root": tmp_path / "out" / "source",
+        "backtest_output_root": tmp_path / "out" / "backtest",
+    }
+    assert "暂无净值数据" not in payload["html"]
+    assert "38.50" in payload["html"]
+    assert "38.00" in payload["html"]
+    assert payload["equity_curve"] == [
+        {"date": "2026-06-01", "strategy_nav": 38.0},
+        {"date": "2026-06-02", "strategy_nav": 38.5},
+        {"date": "2026-06-03", "strategy_nav": 38.2},
+    ]
+
+
+def test_collect_payload_keeps_email_available_when_backtest_curve_fails(monkeypatch, tmp_path: Path):
+    monkeypatch.setattr(module.runner, "run", lambda **kwargs: _rotation_result())
+
+    def fail_backtest(**kwargs):
+        raise RuntimeError("backtest unavailable")
+
+    monkeypatch.setattr(module.backtest, "run_backtest", fail_backtest)
+
+    payload = module.collect_etf_rotation_v2_email_payloads(
+        output_dir=tmp_path / "out",
+        state_path=tmp_path / "missing_state.json",
+    )
+
+    assert payload["subject"].startswith("【今日信号】")
+    assert payload["equity_curve"] == []
+    assert payload["backtest_error"] == "backtest unavailable"
+    assert "暂无净值数据" in payload["html"]
+
+
 def test_collect_payload_does_not_update_state_when_data_not_aligned(monkeypatch, tmp_path: Path):
     state_path = tmp_path / "state.json"
     state_path.write_text('{"last_holding_label": "黄金ETF易方达"}', encoding="utf-8")
@@ -150,6 +221,7 @@ def test_collect_payload_does_not_update_state_when_data_not_aligned(monkeypatch
         "run",
         lambda **kwargs: _rotation_result(aligned=False, data_status="data_unavailable"),
     )
+    monkeypatch.setattr(module.backtest, "run_backtest", lambda **kwargs: {"daily_positions": []})
 
     payload = module.collect_etf_rotation_v2_email_payloads(
         output_dir=tmp_path / "out",

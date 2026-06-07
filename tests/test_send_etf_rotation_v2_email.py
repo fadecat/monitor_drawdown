@@ -125,3 +125,43 @@ def test_archive_run_artifacts_copies_email_rotation_state_and_backtest_outputs(
     assert manifest["rotation_status"] == "ready"
     assert manifest["signal_date"] == "unknown"
     assert manifest["generated_at_utc"].endswith("Z")
+
+
+def test_archive_run_artifacts_reuses_existing_backtest_outputs(monkeypatch, tmp_path: Path):
+    output_dir = tmp_path / "runtime"
+    rotation_dir = output_dir / "rotation"
+    rotation_dir.mkdir(parents=True)
+    (rotation_dir / "data_status.json").write_text('{"status": "ready"}', encoding="utf-8")
+    (output_dir / "source").mkdir(parents=True)
+    backtest_dir = output_dir / "backtest"
+    backtest_dir.mkdir(parents=True)
+    (backtest_dir / "daily_positions.csv").write_text(
+        "date,strategy_nav\n2026-06-05,38.5\n",
+        encoding="utf-8",
+    )
+    (backtest_dir / "backtest_summary.md").write_text("existing summary", encoding="utf-8")
+
+    def fail_if_called(**kwargs):
+        raise AssertionError("archive should reuse preview backtest outputs")
+
+    monkeypatch.setattr(module.backtest, "run_backtest", fail_if_called)
+
+    module.archive_run_artifacts(
+        payloads={
+            "subject": "【持仓不变】ETF轮动V2 | A | 信号日 2026-06-05",
+            "text": "plain",
+            "html": "<html>preview</html>",
+            "next_state": {"last_holding_label": "A"},
+        },
+        output_dir=output_dir,
+        archive_root=tmp_path / "archive",
+        state_path=tmp_path / "missing_state.json",
+    )
+
+    latest = tmp_path / "archive" / "latest"
+    assert (latest / "backtest" / "daily_positions.csv").read_text(encoding="utf-8") == (
+        "date,strategy_nav\n2026-06-05,38.5\n"
+    )
+    assert (latest / "backtest" / "backtest_summary.md").read_text(encoding="utf-8") == (
+        "existing summary"
+    )

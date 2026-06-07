@@ -114,10 +114,11 @@ def archive_run_artifacts(
     _copy_tree_contents(output_dir / "source", latest_dir / "source")
 
     backtest_output_root = output_dir / "backtest"
-    backtest.run_backtest(
-        source_output_root=output_dir / "source",
-        output_root=backtest_output_root,
-    )
+    if not (backtest_output_root / "daily_positions.csv").exists():
+        backtest.run_backtest(
+            source_output_root=output_dir / "source",
+            output_root=backtest_output_root,
+        )
     _copy_tree_contents(backtest_output_root, latest_dir / "backtest")
 
     data_status = _read_json_file(output_dir / "rotation" / "data_status.json")
