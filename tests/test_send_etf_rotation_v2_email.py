@@ -1,12 +1,25 @@
 from __future__ import annotations
 
 import json
+import ast
 from email.message import EmailMessage
 from pathlib import Path
 
 import pytest
 
 import send_etf_rotation_v2_email as module
+
+
+def test_send_module_uses_python310_compatible_datetime_timezone():
+    tree = ast.parse(Path(module.__file__).read_text(encoding="utf-8"))
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ImportFrom):
+            continue
+        if node.module != "datetime":
+            continue
+        imported_names = {alias.name for alias in node.names}
+        assert "UTC" not in imported_names
 
 
 def test_build_etf_rotation_v2_email_message_uses_dynamic_subject():

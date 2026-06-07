@@ -4,7 +4,7 @@ import json
 import re
 import shutil
 import smtplib
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from email.message import EmailMessage
 from pathlib import Path
 from typing import Any
@@ -154,7 +154,7 @@ def archive_run_artifacts(
 
     data_status = _read_json_file(output_dir / "rotation" / "data_status.json")
     manifest = {
-        "generated_at_utc": datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+        "generated_at_utc": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
         "subject": str(payloads.get("subject") or ""),
         "signal_date": str(data_status.get("signal_date") or "unknown"),
         "rotation_status": str(data_status.get("status") or "unknown"),
