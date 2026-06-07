@@ -24,6 +24,28 @@ def test_build_etf_rotation_v2_email_message_uses_dynamic_subject():
     assert "html" in message.get_body(preferencelist=("html",)).get_content()
 
 
+def test_build_email_message_attaches_equity_chart_with_cid(tmp_path: Path):
+    chart_path = tmp_path / "chart.png"
+    chart_path.write_bytes(b"png-bytes")
+
+    message = module.build_etf_rotation_v2_email_message(
+        sender="sender@qq.com",
+        recipients=["alice@example.com"],
+        subject="ETF",
+        text="plain",
+        html='<img src="cid:etf_rotation_v2_equity_chart">',
+        chart_path=chart_path,
+        chart_cid="etf_rotation_v2_equity_chart",
+    )
+
+    html = message.get_body(preferencelist=("html",)).get_content()
+    assert "cid:etf_rotation_v2_equity_chart" in html
+    related_parts = [part for part in message.walk() if part.get_content_maintype() == "image"]
+    assert len(related_parts) == 1
+    assert related_parts[0]["Content-ID"] == "<etf_rotation_v2_equity_chart>"
+    assert related_parts[0].get_content_subtype() == "png"
+
+
 def test_collect_etf_rotation_v2_email_payloads_uses_preview_pipeline(monkeypatch):
     expected = {
         "subject": "【数据未齐】ETF轮动V2 | 沿用上一信号 | 信号日 2026-06-05",
@@ -38,6 +60,45 @@ def test_collect_etf_rotation_v2_email_payloads_uses_preview_pipeline(monkeypatc
     )
 
     assert module.collect_etf_rotation_v2_email_payloads() == expected
+
+
+def test_send_main_uses_cid_html_instead_of_preview_data_uri(monkeypatch, tmp_path: Path):
+    chart_path = tmp_path / "chart.png"
+    chart_path.write_bytes(b"png")
+    captured = {}
+    payloads = {
+        "subject": "ETF",
+        "text": "plain",
+        "html": '<img src="data:image/png;base64,abc">',
+        "chart_path": chart_path,
+        "next_state": None,
+    }
+
+    monkeypatch.setattr(
+        module,
+        "load_etf_rotation_v2_email_config",
+        lambda: {
+            "sender": "sender@qq.com",
+            "recipients": ["alice@example.com"],
+            "smtp_host": "smtp.example.com",
+            "smtp_port": 465,
+            "username": "u",
+            "password": "p",
+        },
+    )
+    monkeypatch.setattr(module, "collect_etf_rotation_v2_email_payloads", lambda output_dir: payloads)
+    monkeypatch.setattr(module, "persist_next_state", lambda payloads: None)
+    monkeypatch.setattr(module, "archive_run_artifacts", lambda payloads, output_dir: None)
+
+    def fake_send_etf_rotation_v2_email(**kwargs):
+        captured.update(kwargs)
+
+    monkeypatch.setattr(module, "send_etf_rotation_v2_email", fake_send_etf_rotation_v2_email)
+
+    assert module.main() == 0
+    assert "cid:etf_rotation_v2_equity_chart" in captured["html"]
+    assert "data:image/png" not in captured["html"]
+    assert captured["chart_path"] == chart_path
 
 
 def test_load_etf_rotation_v2_email_config_raises_when_email_env_missing(monkeypatch):

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import smtplib
 from datetime import UTC, datetime
@@ -9,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 import backtest_etf_rotation_v2_strategy as backtest
+import etf_rotation_v2_email_chart as email_chart
 import monitor_drawdown as md
 import preview_etf_rotation_v2_email as preview
 
@@ -37,6 +39,8 @@ def build_etf_rotation_v2_email_message(
     subject: str,
     text: str,
     html: str,
+    chart_path: Path | None = None,
+    chart_cid: str = email_chart.BENCHMARK_CHART_CID,
 ) -> EmailMessage:
     message = EmailMessage()
     message["From"] = sender
@@ -44,6 +48,14 @@ def build_etf_rotation_v2_email_message(
     message["Subject"] = subject
     message.set_content(text)
     message.add_alternative(html, subtype="html")
+    if chart_path is not None and chart_path.exists():
+        html_part = message.get_body(preferencelist=("html",))
+        html_part.add_related(
+            chart_path.read_bytes(),
+            maintype="image",
+            subtype="png",
+            cid=f"<{chart_cid}>",
+        )
     return message
 
 
@@ -53,6 +65,7 @@ def send_etf_rotation_v2_email(
     subject: str,
     text: str,
     html: str,
+    chart_path: Path | None = None,
 ) -> None:
     message = build_etf_rotation_v2_email_message(
         sender=str(config["sender"]),
@@ -60,11 +73,25 @@ def send_etf_rotation_v2_email(
         subject=subject,
         text=text,
         html=html,
+        chart_path=chart_path,
     )
     with smtplib.SMTP_SSL(str(config["smtp_host"]), int(config["smtp_port"]), timeout=15) as smtp:
         smtp.login(str(config["username"]), str(config["password"]))
         smtp.send_message(message)
     print(f"[INFO] ETF 轮动 V2 邮件发送成功，收件人: {', '.join(config['recipients'])}")
+
+
+def build_send_html(payloads: dict[str, Any]) -> str:
+    html = str(payloads.get("html") or "")
+    chart_path = payloads.get("chart_path")
+    if isinstance(chart_path, Path) and chart_path.exists():
+        return re.sub(
+            r"data:image/png;base64,[A-Za-z0-9+/=]+",
+            f"cid:{email_chart.BENCHMARK_CHART_CID}",
+            html,
+            count=1,
+        )
+    return html
 
 
 def persist_next_state(payloads: dict[str, Any], state_path: Path = preview.DEFAULT_STATE_PATH) -> None:
@@ -139,11 +166,13 @@ def archive_run_artifacts(
 def main() -> int:
     config = load_etf_rotation_v2_email_config()
     payloads = collect_etf_rotation_v2_email_payloads(DEFAULT_OUTPUT_DIR)
+    chart_path = payloads.get("chart_path") if isinstance(payloads.get("chart_path"), Path) else None
     send_etf_rotation_v2_email(
         config=config,
         subject=str(payloads["subject"]),
         text=str(payloads["text"]),
-        html=str(payloads["html"]),
+        html=build_send_html(payloads),
+        chart_path=chart_path,
     )
     persist_next_state(payloads)
     archive_run_artifacts(payloads=payloads, output_dir=DEFAULT_OUTPUT_DIR)
