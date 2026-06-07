@@ -87,6 +87,8 @@ signal_date = 所有标的 latest_date 的最小值
 - `return_10d`
 - 合格状态或拒绝原因
 
+V2 变量、公式和复现步骤见 `docs/etf_rotation_v2_strategy_logic.md`。
+
 第四块是近 1 年策略收益率对比图。图表使用 PNG，不再使用 ASCII 文字曲线。策略线来自同一次运行中 V2 回测输出的 `daily_positions`；基准线使用沪深300ETF（510300）的复权净值 `adjUnitNav`，只作为展示基准，不进入 V2 候选池、排名、过滤或防守逻辑。
 
 图表口径：
