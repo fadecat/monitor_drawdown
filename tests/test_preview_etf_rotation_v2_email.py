@@ -196,6 +196,11 @@ def test_collect_payload_builds_equity_curve_from_same_source_data(monkeypatch, 
         SimpleNamespace(run_backtest=fake_backtest),
         raising=False,
     )
+    monkeypatch.setattr(
+        module.email_chart,
+        "load_benchmark_series",
+        lambda output_dir: (_ for _ in ()).throw(RuntimeError("benchmark unavailable")),
+    )
 
     payload = module.collect_etf_rotation_v2_email_payloads(
         output_dir=tmp_path / "out",
@@ -211,6 +216,7 @@ def test_collect_payload_builds_equity_curve_from_same_source_data(monkeypatch, 
     assert "暂无净值数据" not in payload["html"]
     assert "38.50" in payload["html"]
     assert "38.00" in payload["html"]
+    assert payload["chart_error"] == "benchmark unavailable"
     assert payload["equity_curve"] == [
         {"date": "2026-06-01", "strategy_nav": 38.0},
         {"date": "2026-06-02", "strategy_nav": 38.5},
