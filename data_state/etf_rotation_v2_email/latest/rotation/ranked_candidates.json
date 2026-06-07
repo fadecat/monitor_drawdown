@@ -1,27 +1,14 @@
 [
   {
-    "label": "纳指ETF国泰",
-    "symbol": "513100",
-    "name": "纳指ETF国泰",
-    "kind": "etf",
-    "data_date": "2026-06-04",
-    "score_25": 1.249001269761057,
-    "annualized_return_25": 1.5517013128680315,
-    "r_squared_25": 0.8049237694157199,
-    "return_10d": 0.033541302720239585,
-    "qualified": true,
-    "rejection_reason": ""
-  },
-  {
     "label": "国证成长100指数",
     "symbol": "980080.CN",
     "name": "国证成长100指数",
     "kind": "index",
-    "data_date": "2026-06-04",
-    "score_25": 1.2147038038135136,
-    "annualized_return_25": 1.9063982311374952,
-    "r_squared_25": 0.6371721206899847,
-    "return_10d": 0.12412118924288551,
+    "data_date": "2026-06-05",
+    "score_25": 1.0069292874509455,
+    "annualized_return_25": 1.636585611709502,
+    "r_squared_25": 0.6152622143605146,
+    "return_10d": 0.042852887529580164,
     "qualified": true,
     "rejection_reason": ""
   }
