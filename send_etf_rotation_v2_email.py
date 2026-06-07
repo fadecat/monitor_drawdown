@@ -147,6 +147,10 @@ def archive_run_artifacts(
             output_root=backtest_output_root,
         )
     _copy_tree_contents(backtest_output_root, latest_dir / "backtest")
+    _copy_tree_contents(output_dir / "benchmark", latest_dir / "benchmark")
+    chart_path = payloads.get("chart_path")
+    if isinstance(chart_path, Path) and chart_path.exists():
+        shutil.copy2(chart_path, latest_dir / "email_chart.png")
 
     data_status = _read_json_file(output_dir / "rotation" / "data_status.json")
     manifest = {

@@ -226,3 +226,42 @@ def test_archive_run_artifacts_reuses_existing_backtest_outputs(monkeypatch, tmp
     assert (latest / "backtest" / "backtest_summary.md").read_text(encoding="utf-8") == (
         "existing summary"
     )
+
+
+def test_archive_run_artifacts_copies_chart_and_benchmark_data(tmp_path: Path):
+    output_dir = tmp_path / "runtime"
+    rotation_dir = output_dir / "rotation"
+    rotation_dir.mkdir(parents=True)
+    (rotation_dir / "data_status.json").write_text('{"status": "ready"}', encoding="utf-8")
+    (output_dir / "source").mkdir(parents=True)
+    backtest_dir = output_dir / "backtest"
+    backtest_dir.mkdir(parents=True)
+    (backtest_dir / "daily_positions.csv").write_text(
+        "date,strategy_nav\n2026-06-05,38.5\n",
+        encoding="utf-8",
+    )
+    benchmark_dir = output_dir / "benchmark"
+    benchmark_dir.mkdir(parents=True)
+    (benchmark_dir / "etf_510300.json").write_text(
+        '[{"date":"2026-06-05","benchmark_nav":4.2}]',
+        encoding="utf-8",
+    )
+    chart_path = output_dir / "etf_rotation_v2_equity_chart.png"
+    chart_path.write_bytes(b"png")
+
+    module.archive_run_artifacts(
+        payloads={
+            "subject": "ETF",
+            "text": "plain",
+            "html": "<html></html>",
+            "next_state": {"last_holding_label": "A"},
+            "chart_path": chart_path,
+        },
+        output_dir=output_dir,
+        archive_root=tmp_path / "archive",
+        state_path=tmp_path / "missing_state.json",
+    )
+
+    latest = tmp_path / "archive" / "latest"
+    assert (latest / "email_chart.png").read_bytes() == b"png"
+    assert (latest / "benchmark" / "etf_510300.json").exists()
