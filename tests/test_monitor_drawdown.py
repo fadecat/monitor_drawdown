@@ -66,20 +66,6 @@ def test_build_tickflow_symbols():
     assert md.build_tickflow_index_symbols("csi000985") == ["000985.SH", "000985.SZ"]
 
 
-def test_build_index_eod_price_url_accepts_letter_index_codes():
-    assert (
-        md.build_index_eod_price_url("NDX")
-        == "https://cdn.efunds.com.cn/etf-net/index_eod_price_NDX.json"
-    )
-
-
-def test_build_index_eod_price_url_keeps_numeric_code_for_suffixed_indexes():
-    assert (
-        md.build_index_eod_price_url("980080.CN")
-        == "https://cdn.efunds.com.cn/etf-net/index_eod_price_980080.json"
-    )
-
-
 def test_fetch_etf_data_prefers_tickflow(monkeypatch):
     tickflow_df = pd.DataFrame(
         {

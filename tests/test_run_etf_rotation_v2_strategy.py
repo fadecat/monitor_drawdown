@@ -43,8 +43,8 @@ def test_load_rotation_v2_config_reads_separate_risk_and_defensive_targets():
                 "category": "跨境",
                 "label": "纳指ETF国泰",
                 "search_keywords": ["纳指ETF国泰"],
-                "code": "NDX",
-                "kind": "index",
+                "code": "513100",
+                "kind": "etf",
             },
             {
                 "category": "商品",

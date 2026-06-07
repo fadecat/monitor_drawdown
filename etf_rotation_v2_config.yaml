@@ -17,8 +17,8 @@ risk_targets:
   - category: 跨境
     label: 纳指ETF国泰
     search_keywords: [纳指ETF国泰]
-    code: NDX
-    kind: index
+    code: '513100'
+    kind: etf
   - category: 商品
     label: 黄金ETF易方达
     search_keywords: [黄金ETF易方达]

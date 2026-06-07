@@ -175,15 +175,6 @@ def extract_index_digits(code: str) -> str:
     return digits[-6:] if len(digits) >= 6 else digits
 
 
-def normalize_index_eod_price_code(index_code: str) -> str:
-    digits = extract_index_digits(index_code)
-    if digits:
-        return digits
-    raw = index_code.strip()
-    compact = "".join(ch for ch in raw if ch.isalnum())
-    return compact.upper() if compact and any(ch.isalpha() for ch in compact) else ""
-
-
 def build_em_index_symbols(code: str) -> List[str]:
     raw = code.strip().lower()
     digits = extract_index_digits(raw)
@@ -468,10 +459,10 @@ def build_index_dividend_yield_url(index_code: str) -> str:
 
 
 def build_index_eod_price_url(index_code: str) -> str:
-    normalized_code = normalize_index_eod_price_code(index_code)
-    if not normalized_code:
+    digits = extract_index_digits(index_code)
+    if not digits:
         raise ValueError(f"无法识别追踪指数代码: {index_code}")
-    return DEFAULT_INDEX_EOD_PRICE_URL_TEMPLATE.format(index_code=normalized_code)
+    return DEFAULT_INDEX_EOD_PRICE_URL_TEMPLATE.format(index_code=digits)
 
 
 def build_index_valuation_percentile_url(index_code: str) -> str:
