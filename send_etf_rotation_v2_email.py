@@ -1,15 +1,20 @@
 from __future__ import annotations
 
+import json
+import shutil
 import smtplib
+from datetime import UTC, datetime
 from email.message import EmailMessage
 from pathlib import Path
 from typing import Any
 
+import backtest_etf_rotation_v2_strategy as backtest
 import monitor_drawdown as md
 import preview_etf_rotation_v2_email as preview
 
 
 DEFAULT_OUTPUT_DIR = Path(".test_artifacts/etf_rotation_v2_email")
+DEFAULT_ARCHIVE_ROOT = Path("data_state/etf_rotation_v2_email")
 
 
 def load_etf_rotation_v2_email_config() -> dict[str, Any]:
@@ -69,6 +74,67 @@ def persist_next_state(payloads: dict[str, Any], state_path: Path = preview.DEFA
     preview.write_email_state(state_path, next_state)
 
 
+def _copy_tree_contents(source: Path, destination: Path) -> None:
+    if not source.exists():
+        return
+    if destination.exists():
+        shutil.rmtree(destination)
+    shutil.copytree(source, destination)
+
+
+def _read_json_file(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    return payload if isinstance(payload, dict) else {}
+
+
+def archive_run_artifacts(
+    *,
+    payloads: dict[str, Any],
+    output_dir: Path = DEFAULT_OUTPUT_DIR,
+    archive_root: Path = DEFAULT_ARCHIVE_ROOT,
+    state_path: Path = preview.DEFAULT_STATE_PATH,
+) -> None:
+    latest_dir = archive_root / "latest"
+    if latest_dir.exists():
+        shutil.rmtree(latest_dir)
+    latest_dir.mkdir(parents=True, exist_ok=True)
+
+    (latest_dir / "email_subject.txt").write_text(str(payloads.get("subject") or ""), encoding="utf-8")
+    (latest_dir / "email_text.txt").write_text(str(payloads.get("text") or ""), encoding="utf-8")
+    (latest_dir / "email_preview.html").write_text(str(payloads.get("html") or ""), encoding="utf-8")
+
+    if state_path.exists():
+        shutil.copy2(state_path, latest_dir / "state.json")
+    elif isinstance(payloads.get("next_state"), dict):
+        preview.write_email_state(latest_dir / "state.json", dict(payloads["next_state"]))
+
+    _copy_tree_contents(output_dir / "rotation", latest_dir / "rotation")
+    _copy_tree_contents(output_dir / "source", latest_dir / "source")
+
+    backtest_output_root = output_dir / "backtest"
+    backtest.run_backtest(
+        source_output_root=output_dir / "source",
+        output_root=backtest_output_root,
+    )
+    _copy_tree_contents(backtest_output_root, latest_dir / "backtest")
+
+    data_status = _read_json_file(output_dir / "rotation" / "data_status.json")
+    manifest = {
+        "generated_at_utc": datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+        "subject": str(payloads.get("subject") or ""),
+        "signal_date": str(data_status.get("signal_date") or "unknown"),
+        "rotation_status": str(data_status.get("status") or "unknown"),
+        "all_targets_aligned": bool(data_status.get("all_targets_aligned")),
+        "lagging_labels": data_status.get("lagging_labels") or [],
+    }
+    (latest_dir / "run_manifest.json").write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+
 def main() -> int:
     config = load_etf_rotation_v2_email_config()
     payloads = collect_etf_rotation_v2_email_payloads(DEFAULT_OUTPUT_DIR)
@@ -79,6 +145,7 @@ def main() -> int:
         html=str(payloads["html"]),
     )
     persist_next_state(payloads)
+    archive_run_artifacts(payloads=payloads, output_dir=DEFAULT_OUTPUT_DIR)
     return 0
 
 

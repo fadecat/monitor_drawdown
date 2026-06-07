@@ -103,6 +103,31 @@ data_state/etf_rotation_v2_email.json
 
 如果数据不可用，邮件照常发送，但不更新状态文件，避免用不完整数据覆盖上一有效信号。
 
+## 运行归档
+
+每次 GitHub Actions 运行成功后，除了发送邮件，还会把本次运行数据归档到：
+
+```text
+data_state/etf_rotation_v2_email/latest/
+```
+
+这个目录会随 Actions 提交到 GitHub。虽然目录名固定为 `latest`，每次运行会覆盖当前快照，但 Git 历史会保留每次运行后的版本，方便以后追查某一天的邮件和信号是怎么来的。
+
+归档内容包括：
+
+| 路径 | 内容 |
+|---|---|
+| `run_manifest.json` | 本次运行时间、邮件主题、信号日、数据状态 |
+| `email_subject.txt` | 邮件主题 |
+| `email_text.txt` | 纯文本邮件正文 |
+| `email_preview.html` | HTML 邮件正文 |
+| `state.json` | 发送后用于下次判断持仓变化的状态 |
+| `source/` | 当次抓取并缓存的 ETF/指数序列数据 |
+| `rotation/` | 当次 V2 runner 输出，包括 `data_status.json`、`candidate_metrics.json`、`portfolio_decision.json` |
+| `backtest/` | 用同一份 `source/` 数据重跑的 V2 回测输出，包括 `daily_positions.csv`、`trades.csv`、`backtest_summary.md` |
+
+这样后续如果邮件信号、实盘操作或历史回测结果出现不一致，可以直接从 Git 历史中取回对应运行的完整输入和输出进行复现。
+
 ## GitHub Actions
 
 工作流：
@@ -117,7 +142,7 @@ data_state/etf_rotation_v2_email.json
 UTC 07:23 = Asia/Shanghai 15:23
 ```
 
-发送成功后，如果 `data_state/etf_rotation_v2_email.json` 发生变化，工作流会提交状态文件，供下一次邮件判断持仓变化。
+发送成功后，如果 `data_state/etf_rotation_v2_email.json` 或 `data_state/etf_rotation_v2_email/` 发生变化，工作流会提交状态和归档数据，供下一次邮件判断持仓变化，也供后续追溯。
 
 ## 重要边界
 

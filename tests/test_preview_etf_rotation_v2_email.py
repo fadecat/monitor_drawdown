@@ -116,13 +116,24 @@ def test_write_preview_html_outputs_file(tmp_path: Path):
 def test_collect_payload_uses_previous_state_for_unchanged_subject(monkeypatch, tmp_path: Path):
     state_path = tmp_path / "state.json"
     state_path.write_text('{"last_holding_label": "黄金ETF易方达"}', encoding="utf-8")
-    monkeypatch.setattr(module.runner, "run", lambda output_root: _rotation_result())
+    seen = {}
+
+    def fake_run(*, output_root, source_output_root):
+        seen["output_root"] = output_root
+        seen["source_output_root"] = source_output_root
+        return _rotation_result()
+
+    monkeypatch.setattr(module.runner, "run", fake_run)
 
     payload = module.collect_etf_rotation_v2_email_payloads(
         output_dir=tmp_path / "out",
         state_path=state_path,
     )
 
+    assert seen == {
+        "output_root": tmp_path / "out" / "rotation",
+        "source_output_root": tmp_path / "out" / "source",
+    }
     assert payload["subject"].startswith("【持仓不变】")
     assert payload["next_state"] == {
         "last_signal_date": "2026-06-05",
@@ -137,7 +148,7 @@ def test_collect_payload_does_not_update_state_when_data_not_aligned(monkeypatch
     monkeypatch.setattr(
         module.runner,
         "run",
-        lambda output_root: _rotation_result(aligned=False, data_status="data_unavailable"),
+        lambda **kwargs: _rotation_result(aligned=False, data_status="data_unavailable"),
     )
 
     payload = module.collect_etf_rotation_v2_email_payloads(

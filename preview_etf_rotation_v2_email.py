@@ -273,7 +273,10 @@ def collect_etf_rotation_v2_email_payloads(
     output_dir: Path = DEFAULT_OUTPUT_DIR,
     state_path: Path = DEFAULT_STATE_PATH,
 ) -> dict[str, Any]:
-    rotation_result = runner.run(output_root=output_dir / "rotation")
+    rotation_result = runner.run(
+        output_root=output_dir / "rotation",
+        source_output_root=output_dir / "source",
+    )
     previous_state = load_email_state(state_path)
     previous_holding_label = str(previous_state.get("last_holding_label") or "").strip() or None
     subject = build_email_subject(rotation_result, previous_holding_label)
