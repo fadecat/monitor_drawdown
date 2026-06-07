@@ -1,0 +1,54 @@
+name: ETF Rotation V2 Email
+
+on:
+  schedule:
+    # GitHub Actions 使用 UTC；UTC 07:23 = Asia/Shanghai 15:23（收盘后）
+    - cron: "23 7 * * 1-5"
+  workflow_dispatch:
+
+jobs:
+  etf-rotation-v2-email:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests pyyaml pandas akshare tickflow pytest pycryptodome
+
+      - name: Send ETF Rotation V2 email
+        env:
+          RECEIVER_EMAIL: ${{ secrets.RECEIVER_EMAIL }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+        run: python send_etf_rotation_v2_email.py
+
+      - name: Detect run artifact changes
+        id: state_changes
+        run: |
+          if [ -n "$(git status --porcelain -- data_state/etf_rotation_v2_email.json data_state/etf_rotation_v2_email/)" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Commit run artifacts
+        if: steps.state_changes.outputs.changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data_state/etf_rotation_v2_email.json
+          git add data_state/etf_rotation_v2_email/
+          git commit -m "chore: archive ETF rotation V2 email run"
+          git push
