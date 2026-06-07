@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import base64
 from html import escape
 import json
 from pathlib import Path
 from typing import Any
 
 import backtest_etf_rotation_v2_strategy as backtest
+import etf_rotation_v2_email_chart as email_chart
 import run_etf_rotation_v2_strategy as runner
 
 
@@ -194,36 +196,98 @@ def build_ascii_equity_curve(equity_curve: list[dict[str, Any]] | None, width: i
     return f"{high:.2f} ┤{line}\n{low:.2f} └{'─' * len(line)}"
 
 
+def png_to_data_uri(path: Path) -> str:
+    encoded = base64.b64encode(path.read_bytes()).decode("ascii")
+    return f"data:image/png;base64,{encoded}"
+
+
+def _format_plain_pct(value: Any) -> str:
+    try:
+        return f"{float(value) * 100:+.1f}%"
+    except (TypeError, ValueError):
+        return "--"
+
+
+def _build_chart_summary_html(chart_summary: dict[str, Any] | None) -> str:
+    summary = chart_summary or {}
+    items = [
+        ("策略近1年", summary.get("strategy_period_return")),
+        ("基准近1年", summary.get("benchmark_period_return")),
+        ("超额收益", summary.get("excess_return")),
+        ("策略最大回撤", summary.get("strategy_max_drawdown")),
+    ]
+    cells = "".join(
+        '<td style="padding:10px 12px;border:1px solid #e2e8f0">'
+        f'<div style="font-size:12px;color:#64748b">{escape(label)}</div>'
+        f'<div style="font-size:18px;font-weight:700;color:#0f172a">{escape(_format_plain_pct(value))}</div>'
+        "</td>"
+        for label, value in items
+    )
+    return f'<table cellpadding="0" cellspacing="0" border="0" width="100%"><tr>{cells}</tr></table>'
+
+
 def build_email_html(
     rotation_result: dict[str, Any],
     previous_holding_label: str | None = None,
     equity_curve: list[dict[str, Any]] | None = None,
+    chart_data_uri: str | None = None,
+    chart_summary: dict[str, Any] | None = None,
 ) -> str:
     subject = build_email_subject(rotation_result, previous_holding_label)
     summary_lines = _build_decision_summary(rotation_result, previous_holding_label)
     data_status = rotation_result.get("data_status") or {}
     curve_text = build_ascii_equity_curve(equity_curve)
     summary_html = "".join(f"<p>{escape(line)}</p>" for line in summary_lines)
+    chart_title = "近1年策略收益率 vs 沪深300ETF" if chart_data_uri else "近60日策略净值走势"
+    chart_block = (
+        f'<img src="{escape(chart_data_uri)}" alt="近1年策略收益率 vs 沪深300ETF" '
+        'style="display:block;width:100%;max-width:100%;height:auto">'
+        if chart_data_uri
+        else f"<pre>{escape(curve_text)}</pre>"
+    )
     return f"""<!doctype html>
-<html>
+<html lang="zh-CN">
 <head>
   <meta charset="utf-8">
-  <style>
-    body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #202124; }}
-    table {{ border-collapse: collapse; width: 100%; margin: 12px 0 20px; }}
-    th, td {{ border-bottom: 1px solid #e5e7eb; padding: 8px 10px; text-align: left; font-size: 13px; }}
-    th {{ background: #f8fafc; color: #475569; }}
-    .summary {{ border-left: 4px solid #2563eb; padding: 8px 14px; background: #f8fafc; }}
-    pre {{ background: #f8fafc; padding: 12px; overflow-x: auto; }}
-  </style>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{escape(subject)}</title>
 </head>
-<body>
-  <h1>{escape(subject)}</h1>
-  <div class="summary">{summary_html}</div>
-  {_build_data_status_html(data_status)}
-  {_build_candidate_table_html(rotation_result)}
-  <h2>近60日策略净值走势</h2>
-  <pre>{escape(curve_text)}</pre>
+<body style="margin:0;padding:0;background:#eef2f6;font-family:'Microsoft YaHei','PingFang SC','Helvetica Neue',Arial,sans-serif;color:#1f2937">
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#eef2f6">
+    <tr>
+      <td align="center" style="padding:20px 8px">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#ffffff;border-radius:12px;overflow:hidden">
+          <tr>
+            <td style="padding:20px 20px 12px;border-bottom:1px solid #e2e8f0">
+              <div style="font-size:22px;font-weight:700;color:#0f172a">ETF轮动V2 每日信号</div>
+              <div style="margin-top:6px;font-size:13px;color:#64748b">{escape(subject)}</div>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:16px 20px;background:#f8fafc">
+              <div style="font-size:16px;font-weight:700;color:#0f172a;margin-bottom:8px">今日信号</div>
+              {summary_html}
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:18px 20px 8px">
+              <div style="font-size:16px;font-weight:700;color:#0f172a;margin-bottom:12px">{escape(chart_title)}</div>
+              {_build_chart_summary_html(chart_summary)}
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:0 20px 18px">{chart_block}</td>
+          </tr>
+          <tr>
+            <td style="padding:18px 20px">{_build_candidate_table_html(rotation_result)}</td>
+          </tr>
+          <tr>
+            <td style="padding:0 20px 22px">{_build_data_status_html(data_status)}</td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
 </body>
 </html>
 """
@@ -289,15 +353,42 @@ def collect_etf_rotation_v2_email_payloads(
     except Exception as exc:  # Net value curve must not block the daily signal email.
         backtest_error = str(exc)
         equity_curve = []
+    chart_error = None
+    chart_path = None
+    chart_data_uri = None
+    chart_summary: dict[str, Any] = {}
+    if equity_curve:
+        try:
+            benchmark_rows = email_chart.load_benchmark_series(output_dir)
+            chart_curve = email_chart.build_relative_return_curve(
+                strategy_rows=equity_curve,
+                benchmark_rows=benchmark_rows,
+                window_days=365,
+            )
+            chart_summary = dict(chart_curve.get("summary") or {})
+            chart_path = email_chart.generate_equity_chart_png(chart_curve, output_dir=output_dir)
+            chart_data_uri = png_to_data_uri(chart_path)
+        except Exception as exc:
+            chart_error = str(exc)
     previous_state = load_email_state(state_path)
     previous_holding_label = str(previous_state.get("last_holding_label") or "").strip() or None
     subject = build_email_subject(rotation_result, previous_holding_label)
-    html = build_email_html(rotation_result, previous_holding_label, equity_curve)
+    html = build_email_html(
+        rotation_result,
+        previous_holding_label,
+        equity_curve,
+        chart_data_uri=chart_data_uri,
+        chart_summary=chart_summary,
+    )
     text = build_email_text(rotation_result, previous_holding_label, equity_curve)
     return {
         "rotation_result": rotation_result,
         "equity_curve": equity_curve,
         "backtest_error": backtest_error,
+        "chart_path": chart_path,
+        "chart_data_uri": chart_data_uri,
+        "chart_summary": chart_summary,
+        "chart_error": chart_error,
         "previous_state": previous_state,
         "next_state": build_next_state(rotation_result),
         "subject": subject,

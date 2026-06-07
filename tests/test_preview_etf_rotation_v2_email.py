@@ -107,6 +107,30 @@ def test_build_email_html_shows_data_dates_candidate_scores_and_ascii_curve():
     assert "当前信号持仓：黄金ETF易方达" in html
 
 
+def test_build_email_html_places_decision_chart_then_candidate_table():
+    html = module.build_email_html(
+        _rotation_result(aligned=False),
+        previous_holding_label="上一有效持仓",
+        equity_curve=[{"date": "2026-06-01", "strategy_nav": 38.0}],
+        chart_data_uri="data:image/png;base64,abc",
+        chart_summary={
+            "strategy_period_return": 0.12,
+            "benchmark_period_return": 0.03,
+            "excess_return": 0.09,
+            "strategy_max_drawdown": -0.04,
+        },
+    )
+
+    assert "今日信号" in html
+    assert "近1年策略收益率 vs 沪深300ETF" in html
+    assert "data:image/png;base64,abc" in html
+    assert "策略近1年" in html
+    assert "+12.0%" in html
+    assert html.index("今日结论") < html.index("近1年策略收益率 vs 沪深300ETF")
+    assert html.index("近1年策略收益率 vs 沪深300ETF") < html.index("候选池评分")
+    assert html.index("候选池评分") < html.index("<h2>数据状态</h2>")
+
+
 def test_write_preview_html_outputs_file(tmp_path: Path):
     output_path = module.write_preview_html("<html>ok</html>", tmp_path)
 
@@ -211,6 +235,53 @@ def test_collect_payload_keeps_email_available_when_backtest_curve_fails(monkeyp
     assert payload["equity_curve"] == []
     assert payload["backtest_error"] == "backtest unavailable"
     assert "暂无净值数据" in payload["html"]
+
+
+def test_collect_payload_generates_chart_from_backtest_and_benchmark(monkeypatch, tmp_path: Path):
+    state_path = tmp_path / "state.json"
+    state_path.write_text('{"last_holding_label": "黄金ETF易方达"}', encoding="utf-8")
+
+    monkeypatch.setattr(module.runner, "run", lambda **kwargs: _rotation_result())
+    monkeypatch.setattr(
+        module.backtest,
+        "run_backtest",
+        lambda **kwargs: {
+            "daily_positions": [
+                {"date": "2026-06-01", "strategy_nav": 38.0},
+                {"date": "2026-06-02", "strategy_nav": 39.0},
+            ]
+        },
+    )
+    monkeypatch.setattr(
+        module.email_chart,
+        "load_benchmark_series",
+        lambda output_dir: [
+            {"date": "2026-06-01", "benchmark_nav": 4.0},
+            {"date": "2026-06-02", "benchmark_nav": 4.1},
+        ],
+    )
+
+    def fake_generate_equity_chart_png(curve, output_dir):
+        chart_path = output_dir / "chart.png"
+        chart_path.parent.mkdir(parents=True, exist_ok=True)
+        chart_path.write_bytes(b"png")
+        return chart_path
+
+    monkeypatch.setattr(
+        module.email_chart,
+        "generate_equity_chart_png",
+        fake_generate_equity_chart_png,
+    )
+
+    payload = module.collect_etf_rotation_v2_email_payloads(
+        output_dir=tmp_path / "out",
+        state_path=state_path,
+    )
+
+    assert payload["chart_path"] == tmp_path / "out" / "chart.png"
+    assert payload["chart_summary"]["strategy_period_return"] > 0
+    assert payload["chart_data_uri"].startswith("data:image/png;base64,")
+    assert "近1年策略收益率 vs 沪深300ETF" in payload["html"]
 
 
 def test_collect_payload_does_not_update_state_when_data_not_aligned(monkeypatch, tmp_path: Path):
