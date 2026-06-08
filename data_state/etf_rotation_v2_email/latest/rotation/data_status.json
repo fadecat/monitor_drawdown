@@ -1,15 +1,21 @@
 {
-  "signal_date": "2026-06-05",
-  "all_targets_aligned": true,
+  "signal_date": "2026-06-04",
+  "all_targets_aligned": false,
   "latest_dates_by_label": {
     "国证成长100指数": "2026-06-05",
     "国证价值100指数": "2026-06-05",
-    "国证石油天然气指数": "2026-06-05",
-    "纳指ETF国泰": "2026-06-05",
+    "国证石油天然气指数": "2026-06-08",
+    "纳指ETF国泰": "2026-06-04",
     "黄金ETF易方达": "2026-06-05",
     "银华日利ETF": "2026-06-05"
   },
-  "lagging_labels": [],
+  "lagging_labels": [
+    "国证成长100指数",
+    "国证价值100指数",
+    "纳指ETF国泰",
+    "黄金ETF易方达",
+    "银华日利ETF"
+  ],
   "missing_labels": [],
   "status": "ready"
 }

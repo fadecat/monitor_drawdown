@@ -1,8 +1,14 @@
 {
-  "generated_at_utc": "2026-06-07T08:49:42Z",
-  "subject": "【换仓通知】ETF轮动V2 | 纳指ETF国泰 → 国证成长100指数 | 信号日 2026-06-05",
-  "signal_date": "2026-06-05",
+  "generated_at_utc": "2026-06-08T12:13:12Z",
+  "subject": "【换仓通知】ETF轮动V2 | 国证成长100指数 → 纳指ETF国泰 | 信号日 2026-06-04",
+  "signal_date": "2026-06-04",
   "rotation_status": "ready",
-  "all_targets_aligned": true,
-  "lagging_labels": []
+  "all_targets_aligned": false,
+  "lagging_labels": [
+    "国证成长100指数",
+    "国证价值100指数",
+    "纳指ETF国泰",
+    "黄金ETF易方达",
+    "银华日利ETF"
+  ]
 }
