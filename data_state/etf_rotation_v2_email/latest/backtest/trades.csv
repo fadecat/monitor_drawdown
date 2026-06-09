@@ -465,3 +465,4 @@
 2026-05-28,513100,纳指ETF国泰,980080.CN,国证成长100指数,risk_to_risk_rotation,top_ranked_risk_asset,980080.CN
 2026-06-01,980080.CN,国证成长100指数,513100,纳指ETF国泰,risk_to_risk_rotation,top_ranked_risk_asset,513100
 2026-06-05,513100,纳指ETF国泰,980080.CN,国证成长100指数,risk_to_risk_rotation,top_ranked_risk_asset,980080.CN
+2026-06-08,980080.CN,国证成长100指数,511880,银华日利ETF,risk_to_defensive_fallback,fallback_defensive_asset,
