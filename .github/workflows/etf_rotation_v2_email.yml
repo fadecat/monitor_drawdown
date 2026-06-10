@@ -3,7 +3,7 @@ name: ETF Rotation V2 Email
 on:
   schedule:
     # GitHub Actions 使用 UTC；UTC 07:23 = Asia/Shanghai 15:23（收盘后）
-    - cron: "23 7 * * 1-5"
+    # - cron: "23 7 * * 1-5"
   workflow_dispatch:
 
 jobs:
