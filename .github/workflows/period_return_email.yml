@@ -10,7 +10,7 @@ on:
     # UTC 07:07 = Asia/Shanghai 15:07（收盘后）
     - cron: "7 7 * * 1-5"
     # UTC 12:17 = Asia/Shanghai 20:17（晚间复盘）
-    - cron: "17 12 * * 1-5"
+    # - cron: "17 12 * * 1-5"
   workflow_dispatch:
 
 jobs:
