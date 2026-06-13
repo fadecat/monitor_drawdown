@@ -4,7 +4,7 @@ on:
   schedule:
     # GitHub Actions 使用 UTC，且整点/半点任务拥堵严重经常被跳过，所以分钟错开到非常见值
     # UTC 01:37 = Asia/Shanghai 09:37（开盘后）
-    - cron: "37 1 * * 1-5"
+    # - cron: "37 1 * * 1-5"
     # UTC 03:37 = Asia/Shanghai 11:37（午盘）
     - cron: "37 3 * * 1-5"
     # UTC 07:07 = Asia/Shanghai 15:07（收盘后）
