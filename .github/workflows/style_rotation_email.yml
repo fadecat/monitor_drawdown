@@ -3,7 +3,7 @@ name: Style Rotation Email
 on:
   schedule:
     # GitHub Actions 使用 UTC，错开整点拥堵；UTC 07:07 = Asia/Shanghai 15:07（收盘后）
-    - cron: "7 7 * * 1-5"
+    # - cron: "7 7 * * 1-5"
   workflow_dispatch:
 
 jobs:
