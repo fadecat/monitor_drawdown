@@ -194,6 +194,25 @@ def test_collect_style_rotation_preview_payload_uses_fixed_symbols(monkeypatch):
     assert set(payload["series"].keys()) == {"dates", "left_return", "right_return", "spread"}
 
 
+def test_collect_style_rotation_preview_payload_defaults_to_five_year_display(monkeypatch):
+    dates = pd.date_range("2020-01-01", periods=1600, freq="B")
+
+    def fake_fetch_index_history(symbol: str) -> pd.DataFrame:
+        return pd.DataFrame(
+            {
+                "date": dates,
+                "close": range(1000, 1000 + len(dates)),
+            }
+        )
+
+    monkeypatch.setattr(srp, "fetch_index_history", fake_fetch_index_history)
+
+    payload = collect_style_rotation_preview_payload()
+
+    assert payload["meta"]["display_window_days"] == 252 * 5
+    assert len(payload["series"]["dates"]) == 252 * 5
+
+
 def test_fetch_etf_history_uses_etf_com_nav_rows(monkeypatch):
     monkeypatch.setattr(
         srp.etf_analysis,
@@ -242,8 +261,8 @@ def test_collect_etf_style_rotation_preview_payload_uses_fixed_symbols(monkeypat
 def test_fetch_index_history_uses_monitor_drawdown_fetch_index_data(monkeypatch):
     calls = []
 
-    def fake_fetch_index_data(symbol: str, start_str: str, end_str: str) -> pd.DataFrame:
-        calls.append((symbol, start_str, end_str))
+    def fake_fetch_index_data(symbol: str, start_str: str, end_str: str, **kwargs) -> pd.DataFrame:
+        calls.append((symbol, start_str, end_str, kwargs))
         return pd.DataFrame(
             {
                 "trade_date": ["2024-01-02", "2024-01-01", "2024-01-01"],
@@ -257,12 +276,13 @@ def test_fetch_index_history_uses_monitor_drawdown_fetch_index_data(monkeypatch)
 
     assert len(calls) == 1
     assert calls[0][0] == "399376"
+    assert calls[0][3]["tickflow_daily_count"] == srp.STYLE_ROTATION_TICKFLOW_DAILY_COUNT
     assert result["date"].dt.strftime("%Y-%m-%d").tolist() == ["2024-01-01", "2024-01-02"]
     assert result["close"].tolist() == [99.0, 110.0]
 
 
 def test_fetch_index_history_raises_runtime_error_when_normalized_result_is_empty(monkeypatch):
-    monkeypatch.setattr(srp.md, "fetch_index_data", lambda symbol, start_str, end_str: pd.DataFrame())
+    monkeypatch.setattr(srp.md, "fetch_index_data", lambda symbol, start_str, end_str, **kwargs: pd.DataFrame())
 
     with pytest.raises(RuntimeError, match="指数历史数据规范化后为空: 399376"):
         srp.fetch_index_history("399376")
@@ -373,7 +393,7 @@ def test_chart_helpers_include_symbols_latest_date_and_spread():
         == "最新日期：2026年6月2日    最新差值：58.23%"
     )
     assert style_chart._build_latest_x_axis_label(payload) == "2026-06-02"
-    assert style_chart.SPREAD_LINE_WIDTH == 1.6
+    assert style_chart.SPREAD_LINE_WIDTH == 1.6 / 3
 
 
 def test_hide_matching_x_tick_labels_blanks_only_matching_label():

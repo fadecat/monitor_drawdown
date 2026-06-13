@@ -43,6 +43,21 @@ class FakeResponse:
         return self.payload
 
 
+def sample_style_rotation_payload():
+    return {
+        "meta": {
+            "left_name": "国证小盘成长",
+            "right_name": "国证大盘价值",
+            "return_window_days": 250,
+            "display_window_days": 252,
+        },
+        "series": {
+            "dates": ["2026-06-12"],
+            "spread": [12.34],
+        },
+    }
+
+
 def test_normalize_dataframe_supports_tickflow_trade_date():
     df = pd.DataFrame(
         {
@@ -435,6 +450,56 @@ def test_build_email_html_content_renders_full_bleed_charts_and_fx_chart():
     assert "美元人民币汇率对比图" in content
 
 
+def test_build_email_content_includes_style_rotation_section():
+    payload = sample_style_rotation_payload()
+
+    html = md.build_email_html_content(
+        [],
+        valuation_items=[],
+        current_time=md.datetime(2026, 6, 13, 15, 30, tzinfo=md.BEIJING_TZ),
+        style_rotation_payload=payload,
+        style_rotation_as_of_label="2026-06-12",
+        style_rotation_chart_path=md.Path(".test_artifacts/style_rotation/style_rotation_preview.png"),
+    )
+    text = md.build_email_plain_text_content(
+        [],
+        valuation_items=[],
+        current_time=md.datetime(2026, 6, 13, 15, 30, tzinfo=md.BEIJING_TZ),
+        style_rotation_payload=payload,
+        style_rotation_as_of_label="2026-06-12",
+    )
+
+    assert "风格轮动收益率差值" in html
+    assert "国证小盘成长 vs 国证大盘价值" in html
+    assert "当前差值 12.34%" in html
+    assert "cid:style_rotation_chart" in html
+    assert "风格轮动收益率差值" in text
+    assert "国证小盘成长 vs 国证大盘价值" in text
+    assert "当前差值: 12.34%" in text
+
+
+def test_build_email_message_attaches_style_rotation_chart(tmp_path):
+    chart_path = tmp_path / "style_rotation.png"
+    chart_path.write_bytes(b"png-bytes")
+
+    message = md.build_email_message(
+        "sender@example.com",
+        ["alice@example.com"],
+        "核心标的监控告警",
+        [],
+        valuation_items=[],
+        current_time=md.datetime(2026, 6, 13, 15, 30, tzinfo=md.BEIJING_TZ),
+        style_rotation_payload=sample_style_rotation_payload(),
+        style_rotation_as_of_label="2026-06-12",
+        style_rotation_chart_path=chart_path,
+    )
+
+    html_part = message.get_payload()[-1]
+    related = html_part.get_payload()
+
+    assert any(part.get("Content-ID") == "<style_rotation_chart>" for part in related)
+
+
 def test_fetch_index_pe_history_retries_on_connection_abort(monkeypatch):
     payload = [
         {"trdDt": "2026-03-20", "pETtm": 9.1},
@@ -523,12 +588,33 @@ targets:
 
     fx_png = workspace_tmp / "fx.png"
     fx_png.write_bytes(b"fx")
+    style_png = workspace_tmp / "style_rotation.png"
+    style_png.write_bytes(b"style")
     captured = {}
-    monkeypatch.setattr(md, "send_email", lambda config, triggered_items, valuation_items=None, current_time=None, chart_paths=None, fx_chart_path=None: captured.update({
-        "chart_paths": chart_paths,
-        "fx_chart_path": fx_chart_path,
-        "valuation_items": valuation_items,
-    }))
+
+    def fake_send_email(
+        config,
+        triggered_items,
+        valuation_items=None,
+        current_time=None,
+        chart_paths=None,
+        fx_chart_path=None,
+        style_rotation_payload=None,
+        style_rotation_as_of_label=None,
+        style_rotation_chart_path=None,
+    ):
+        captured.update(
+            {
+                "chart_paths": chart_paths,
+                "fx_chart_path": fx_chart_path,
+                "valuation_items": valuation_items,
+                "style_rotation_payload": style_rotation_payload,
+                "style_rotation_as_of_label": style_rotation_as_of_label,
+                "style_rotation_chart_path": style_rotation_chart_path,
+            }
+        )
+
+    monkeypatch.setattr(md, "send_email", fake_send_email)
 
     def fake_generate_fx_chart(output_dir):
         return fx_png
@@ -543,6 +629,14 @@ targets:
 
     monkeypatch.setattr("prototype_fx_chart.generate_fx_chart", fake_generate_fx_chart)
     monkeypatch.setattr(valuation_chart, "generate_valuation_percentile_chart", fake_generate_valuation_percentile_chart)
+    monkeypatch.setattr(
+        "preview_style_rotation_email.collect_style_rotation_email_payloads",
+        lambda output_dir: {
+            "payload": sample_style_rotation_payload(),
+            "as_of_label": "2026-06-12",
+            "chart_path": style_png,
+        },
+    )
 
     try:
         md.main()
@@ -553,8 +647,87 @@ targets:
         assert "simulated chart failure" in output
         assert captured["fx_chart_path"] == fx_png
         assert captured["chart_paths"] == {"000300": workspace_tmp / "000300.png"}
+        assert captured["style_rotation_payload"] == sample_style_rotation_payload()
+        assert captured["style_rotation_as_of_label"] == "2026-06-12"
+        assert captured["style_rotation_chart_path"] == style_png
     finally:
         shutil.rmtree(workspace_tmp, ignore_errors=True)
+
+
+def test_main_sends_email_when_style_rotation_collection_fails(monkeypatch, capsys, tmp_path):
+    workspace_tmp = tmp_path / "style_rotation_failure"
+    workspace_tmp.mkdir()
+    monkeypatch.setenv("WEBHOOK_URL", "https://example.invalid/webhook")
+    monkeypatch.setenv("CONFIG_PATH", str(workspace_tmp / "config.yaml"))
+    monkeypatch.setenv("RECEIVER_EMAIL", "alice@example.com")
+    monkeypatch.setenv("SMTP_USER", "sender@example.com")
+    monkeypatch.setenv("SMTP_PASS", "secret")
+
+    (workspace_tmp / "config.yaml").write_text(
+        """
+targets:
+  - name: "沪深300"
+    code: "000300"
+    type: "valuation"
+""".strip(),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(md, "fetch_cn_10y_bond_yield", lambda: None)
+    monkeypatch.setattr(
+        md,
+        "fetch_cn_10y_bond_history_with_archive_fallback",
+        lambda: (
+            pd.DataFrame({"date": pd.to_datetime(["2026-06-12"]), "yield_pct": [1.7]}),
+            {"data_source": "live", "archive_latest_date": None},
+        ),
+    )
+    monkeypatch.setattr(
+        md,
+        "fetch_target_index_metrics",
+        lambda target: {
+            "index_code": "000300",
+            "index_name": "沪深300",
+            "index_dividend_yield": 2.46,
+            "index_valuation_date": "2026-06-12",
+            "index_valuation_metrics": {"PE(TTM)": {"current": 12.3, "percentiles": {"5Y": 55.0}}},
+        },
+    )
+    monkeypatch.setattr(md, "attach_equity_bond_spread", lambda item, bond_history: None)
+    monkeypatch.setattr(md, "send_webhook", lambda *args, **kwargs: None)
+    monkeypatch.setattr("prototype_fx_chart.generate_fx_chart", lambda output_dir: None)
+    monkeypatch.setattr("prototype_valuation_percentile_chart.generate_valuation_percentile_chart", lambda target, output_dir: None)
+    monkeypatch.setattr(
+        "preview_style_rotation_email.collect_style_rotation_email_payloads",
+        lambda output_dir: (_ for _ in ()).throw(RuntimeError("style failed")),
+    )
+
+    captured = {}
+
+    def fake_send_email(
+        config,
+        triggered_items,
+        valuation_items=None,
+        current_time=None,
+        chart_paths=None,
+        fx_chart_path=None,
+        style_rotation_payload=None,
+        style_rotation_as_of_label=None,
+        style_rotation_chart_path=None,
+    ):
+        captured["sent"] = True
+        captured["style_rotation_payload"] = style_rotation_payload
+        captured["style_rotation_chart_path"] = style_rotation_chart_path
+
+    monkeypatch.setattr(md, "send_email", fake_send_email)
+
+    md.main()
+
+    output = capsys.readouterr().out
+    assert captured["sent"] is True
+    assert captured["style_rotation_payload"] is None
+    assert captured["style_rotation_chart_path"] is None
+    assert "风格轮动邮件区块生成失败" in output
 
 
 def test_load_archive_records_reads_index_archive(tmp_path):

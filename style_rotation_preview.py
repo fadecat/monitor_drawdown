@@ -12,7 +12,8 @@ FIXED_LEFT_NAME = "国证小盘成长"
 FIXED_RIGHT_SYMBOL = "399373"
 FIXED_RIGHT_NAME = "国证大盘价值"
 DEFAULT_RETURN_WINDOW_DAYS = 250
-DEFAULT_DISPLAY_WINDOW_DAYS = 252
+DEFAULT_DISPLAY_WINDOW_DAYS = 252 * 5
+STYLE_ROTATION_TICKFLOW_DAILY_COUNT = 5000
 
 FIXED_ETF_LEFT_SYMBOL = "159259"
 FIXED_ETF_LEFT_NAME = "成长ETF易方达"
@@ -121,7 +122,12 @@ def fetch_index_history(symbol: str) -> pd.DataFrame:
     start_str = start_date.strftime("%Y%m%d")
     end_str = end_date.strftime("%Y%m%d")
 
-    frame = md.fetch_index_data(symbol, start_str, end_str)
+    frame = md.fetch_index_data(
+        symbol,
+        start_str,
+        end_str,
+        tickflow_daily_count=STYLE_ROTATION_TICKFLOW_DAILY_COUNT,
+    )
     normalized = normalize_price_frame(frame)
     if normalized.empty:
         raise RuntimeError(f"指数历史数据规范化后为空: {symbol}")

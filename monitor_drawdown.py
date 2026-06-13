@@ -367,7 +367,12 @@ def clip_dataframe_by_date(df: pd.DataFrame, start_date: str, end_date: str) -> 
     return df[(df["date"] >= start_ts) & (df["date"] <= end_ts)].copy()
 
 
-def fetch_tickflow_klines(symbols: List[str], start_date: str, end_date: str) -> pd.DataFrame:
+def fetch_tickflow_klines(
+    symbols: List[str],
+    start_date: str,
+    end_date: str,
+    daily_count: int = DEFAULT_TICKFLOW_DAILY_COUNT,
+) -> pd.DataFrame:
     client = build_tickflow_client()
     if client is None:
         raise RuntimeError("tickflow 未安装")
@@ -381,7 +386,7 @@ def fetch_tickflow_klines(symbols: List[str], start_date: str, end_date: str) ->
                     lambda symbol=symbol: client.klines.get(
                         symbol,
                         period="1d",
-                        count=DEFAULT_TICKFLOW_DAILY_COUNT,
+                        count=daily_count,
                         adjust="none",
                         as_dataframe=True,
                     ),
@@ -1094,13 +1099,23 @@ def fetch_etf_data(code: str, start_date: str, end_date: str) -> pd.DataFrame:
     raise RuntimeError(f"ETF 数据获取失败: {error_message}")
 
 
-def fetch_index_data(code: str, start_date: str, end_date: str) -> pd.DataFrame:
+def fetch_index_data(
+    code: str,
+    start_date: str,
+    end_date: str,
+    tickflow_daily_count: int = DEFAULT_TICKFLOW_DAILY_COUNT,
+) -> pd.DataFrame:
     errors: List[str] = []
 
     tickflow_symbols = build_tickflow_index_symbols(code)
     if tickflow_symbols:
         try:
-            return fetch_tickflow_klines(tickflow_symbols, start_date, end_date)
+            return fetch_tickflow_klines(
+                tickflow_symbols,
+                start_date,
+                end_date,
+                daily_count=tickflow_daily_count,
+            )
         except Exception as exc:  # noqa: BLE001
             errors.append(f"tickflow({tickflow_symbols}): {exc}")
             print(f"[WARN] 指数 TickFlow 数据源失败，准备尝试 AkShare: {exc}")
@@ -1516,12 +1531,42 @@ EMAIL_FONT_STACK = (
 EMAIL_BASE_FONT = (
     f"font-family:{EMAIL_FONT_STACK};font-size:14px;line-height:1.6;color:{EMAIL_TEXT_PRIMARY}"
 )
+STYLE_ROTATION_CHART_CID = "style_rotation_chart"
+
+
+def _get_latest_style_rotation_spread(style_rotation_payload: Optional[Dict[str, Any]]) -> Optional[float]:
+    if not isinstance(style_rotation_payload, dict):
+        return None
+    series = style_rotation_payload.get("series")
+    if not isinstance(series, dict):
+        return None
+    spread_values = series.get("spread")
+    if not isinstance(spread_values, list) or not spread_values:
+        return None
+    return parse_float(spread_values[-1])
+
+
+def _build_style_rotation_summary(style_rotation_payload: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    if not isinstance(style_rotation_payload, dict):
+        return None
+    meta = style_rotation_payload.get("meta")
+    if not isinstance(meta, dict):
+        return None
+    return {
+        "left_name": str(meta.get("left_name") or "左侧标的").strip(),
+        "right_name": str(meta.get("right_name") or "右侧标的").strip(),
+        "return_window_days": meta.get("return_window_days"),
+        "display_window_days": meta.get("display_window_days"),
+        "latest_spread": _get_latest_style_rotation_spread(style_rotation_payload),
+    }
 
 
 def build_email_plain_text_content(
     triggered_items: List[Dict],
     valuation_items: Optional[List[Dict]] = None,
     current_time: Optional[datetime] = None,
+    style_rotation_payload: Optional[Dict[str, Any]] = None,
+    style_rotation_as_of_label: Optional[str] = None,
 ) -> str:
     now_str = (current_time or now_in_beijing()).strftime("%Y-%m-%d %H:%M:%S")
     blocks: List[str] = [f"{DEFAULT_EMAIL_SUBJECT}", f"触发时间: {now_str}"]
@@ -1564,6 +1609,20 @@ def build_email_plain_text_content(
         if ebr_line:
             lines.append(f"  {ebr_line}")
         blocks.append("\n".join(lines))
+
+    style_summary = _build_style_rotation_summary(style_rotation_payload)
+    if style_summary:
+        blocks.extend(
+            [
+                "",
+                "风格轮动收益率差值",
+                f"数据截至: {style_rotation_as_of_label or '-'}",
+                f"{style_summary['left_name']} vs {style_summary['right_name']}",
+            ]
+        )
+        latest_spread = style_summary.get("latest_spread")
+        if latest_spread is not None:
+            blocks.append(f"当前差值: {format_percent(latest_spread, decimals=2, strip=False)}%")
 
     return "\n".join(blocks)
 
@@ -1915,12 +1974,60 @@ def _render_email_item_percentile_block(item: Dict) -> str:
     return title_html + table_html + valuation_row
 
 
+def _render_style_rotation_email_section(
+    *,
+    style_rotation_payload: Optional[Dict[str, Any]],
+    style_rotation_as_of_label: Optional[str],
+    style_rotation_chart_path: Optional[Path],
+) -> str:
+    summary = _build_style_rotation_summary(style_rotation_payload)
+    if not summary:
+        return ""
+
+    latest_spread = summary.get("latest_spread")
+    spread_text = (
+        f"{format_percent(latest_spread, decimals=2, strip=False)}%"
+        if latest_spread is not None
+        else "-"
+    )
+    return_window = summary.get("return_window_days")
+    display_window = summary.get("display_window_days")
+    chart_html = ""
+    if style_rotation_chart_path:
+        chart_html = (
+            f'<div style="padding:14px 0 0 0">'
+            f'<img src="cid:{STYLE_ROTATION_CHART_CID}" alt="风格轮动收益率差值图" '
+            f'style="width:100%;max-width:100%;height:auto;display:block">'
+            f'</div>'
+        )
+
+    return (
+        f'<tr><td style="padding:24px 28px 0 28px">'
+        f'<div style="border-top:1px solid {EMAIL_BORDER_CARD_SPLIT};padding-top:24px">'
+        f'<div style="font-size:18px;font-weight:700;color:{EMAIL_TEXT_PRIMARY}">'
+        f'风格轮动收益率差值</div>'
+        f'<div style="font-size:12px;color:{EMAIL_LABEL_COLOR};margin-top:4px">'
+        f'数据截至 {escape(str(style_rotation_as_of_label or "-"))}</div>'
+        f'<div style="font-size:14px;color:{EMAIL_TEXT_PRIMARY};margin-top:10px">'
+        f'{escape(str(summary["left_name"]))} vs {escape(str(summary["right_name"]))}</div>'
+        f'<div style="font-size:12px;color:{EMAIL_MUTED_COLOR};margin-top:6px">'
+        f'展示窗口 {escape(str(display_window or "-"))} 天'
+        f' &nbsp;|&nbsp; 计算窗口 {escape(str(return_window or "-"))} 天'
+        f' &nbsp;|&nbsp; 当前差值 {escape(spread_text)}</div>'
+        f'{chart_html}'
+        f'</div></td></tr>'
+    )
+
+
 def build_email_html_content(
     triggered_items: List[Dict],
     valuation_items: Optional[List[Dict]] = None,
     current_time: Optional[datetime] = None,
     chart_paths: Optional[Dict[str, Path]] = None,
     fx_chart_path: Optional[Path] = None,
+    style_rotation_payload: Optional[Dict[str, Any]] = None,
+    style_rotation_as_of_label: Optional[str] = None,
+    style_rotation_chart_path: Optional[Path] = None,
 ) -> str:
     now_str = escape((current_time or now_in_beijing()).strftime("%Y-%m-%d %H:%M"))
 
@@ -2037,6 +2144,12 @@ def build_email_html_content(
         if i < len(blocks) - 1:
             card_rows.append(divider)
 
+    style_rotation_section = _render_style_rotation_email_section(
+        style_rotation_payload=style_rotation_payload,
+        style_rotation_as_of_label=style_rotation_as_of_label,
+        style_rotation_chart_path=style_rotation_chart_path,
+    )
+
     footer = (
         f'<tr><td style="padding:28px 28px 22px 28px;border-top:1px solid {EMAIL_BORDER_CARD_SPLIT};margin-top:24px">'
         f'<div style="font-size:11px;color:{EMAIL_LABEL_COLOR};text-align:center;line-height:1.6">'
@@ -2065,6 +2178,7 @@ def build_email_html_content(
         f'</td></tr>'
         f'<tr><td style="padding:14px 28px 0 28px">{global_info}</td></tr>'
         + "".join(card_rows)
+        + style_rotation_section
         + footer
         + '</table></td></tr></table></body></html>'
     )
@@ -2079,12 +2193,23 @@ def build_email_message(
     current_time: Optional[datetime] = None,
     chart_paths: Optional[Dict[str, Path]] = None,
     fx_chart_path: Optional[Path] = None,
+    style_rotation_payload: Optional[Dict[str, Any]] = None,
+    style_rotation_as_of_label: Optional[str] = None,
+    style_rotation_chart_path: Optional[Path] = None,
 ) -> EmailMessage:
     message = EmailMessage()
     message["From"] = sender
     message["To"] = ", ".join(recipients)
     message["Subject"] = subject
-    message.set_content(build_email_plain_text_content(triggered_items, valuation_items=valuation_items, current_time=current_time))
+    message.set_content(
+        build_email_plain_text_content(
+            triggered_items,
+            valuation_items=valuation_items,
+            current_time=current_time,
+            style_rotation_payload=style_rotation_payload,
+            style_rotation_as_of_label=style_rotation_as_of_label,
+        )
+    )
     message.add_alternative(
         build_email_html_content(
             triggered_items,
@@ -2092,6 +2217,9 @@ def build_email_message(
             current_time=current_time,
             chart_paths=chart_paths,
             fx_chart_path=fx_chart_path,
+            style_rotation_payload=style_rotation_payload,
+            style_rotation_as_of_label=style_rotation_as_of_label,
+            style_rotation_chart_path=style_rotation_chart_path,
         ),
         subtype="html",
     )
@@ -2122,6 +2250,19 @@ def build_email_message(
             )
         except Exception as exc:  # noqa: BLE001
             print(f"[WARN] 外汇图表挂载失败: {exc}")
+    if style_rotation_chart_path:
+        html_part = message.get_payload()[-1]
+        try:
+            with open(style_rotation_chart_path, "rb") as file:
+                img_bytes = file.read()
+            html_part.add_related(
+                img_bytes,
+                maintype="image",
+                subtype="png",
+                cid=f"<{STYLE_ROTATION_CHART_CID}>",
+            )
+        except Exception as exc:  # noqa: BLE001
+            print(f"[WARN] 风格轮动图表挂载失败: {exc}")
     return message
 
 
@@ -2132,6 +2273,9 @@ def send_email(
     current_time: Optional[datetime] = None,
     chart_paths: Optional[Dict[str, Path]] = None,
     fx_chart_path: Optional[Path] = None,
+    style_rotation_payload: Optional[Dict[str, Any]] = None,
+    style_rotation_as_of_label: Optional[str] = None,
+    style_rotation_chart_path: Optional[Path] = None,
 ) -> None:
     message = build_email_message(
         config["sender"],
@@ -2142,6 +2286,9 @@ def send_email(
         current_time=current_time,
         chart_paths=chart_paths,
         fx_chart_path=fx_chart_path,
+        style_rotation_payload=style_rotation_payload,
+        style_rotation_as_of_label=style_rotation_as_of_label,
+        style_rotation_chart_path=style_rotation_chart_path,
     )
     with smtplib.SMTP_SSL(config["smtp_host"], config["smtp_port"], timeout=15) as smtp:
         smtp.login(config["username"], config["password"])
@@ -2353,6 +2500,9 @@ def main() -> None:
             if email_config:
                 chart_paths: Dict[str, Path] = {}
                 fx_chart_path: Optional[Path] = None
+                style_rotation_payload: Optional[Dict[str, Any]] = None
+                style_rotation_as_of_label: Optional[str] = None
+                style_rotation_chart_path: Optional[Path] = None
                 try:
                     from pathlib import Path as _Path
                     from prototype_fx_chart import generate_fx_chart
@@ -2391,6 +2541,16 @@ def main() -> None:
                     chart_paths = {}
                     fx_chart_path = None
 
+                try:
+                    from preview_style_rotation_email import collect_style_rotation_email_payloads
+
+                    style_rotation_payloads = collect_style_rotation_email_payloads(Path(".email_chart_cache"))
+                    style_rotation_payload = dict(style_rotation_payloads["payload"])
+                    style_rotation_as_of_label = str(style_rotation_payloads["as_of_label"])
+                    style_rotation_chart_path = Path(style_rotation_payloads["chart_path"])
+                except Exception as exc:  # noqa: BLE001
+                    print(f"[WARN] 风格轮动邮件区块生成失败: {exc}")
+
                 send_email(
                     email_config,
                     triggered,
@@ -2398,6 +2558,9 @@ def main() -> None:
                     current_time=current_time,
                     chart_paths=chart_paths,
                     fx_chart_path=fx_chart_path,
+                    style_rotation_payload=style_rotation_payload,
+                    style_rotation_as_of_label=style_rotation_as_of_label,
+                    style_rotation_chart_path=style_rotation_chart_path,
                 )
             else:
                 print("[INFO] 未配置 RECEIVER_EMAIL/SMTP_USER/SMTP_PASS，跳过邮件发送。")
