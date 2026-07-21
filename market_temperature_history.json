@@ -72964,5 +72964,26 @@
     "turnover_rt": "16.03",
     "idx_price": "4598.321",
     "idx_increase_rt": "1.53"
+  },
+  {
+    "date": "2026-07-21",
+    "index_value": "2679.714",
+    "volume": "957.343",
+    "amount": "4602.233",
+    "temperature": "72.68",
+    "count": "309",
+    "avg_price": "159.249",
+    "mid_price": "132.622",
+    "mid_convert_value": "80.80",
+    "avg_dblow": "243.28",
+    "premium_temp": "91.03",
+    "avg_premium_rt": "84.029",
+    "mid_premium_rt": "67.99",
+    "avg_ytm_rt": "-10.833",
+    "increase_val": "47.382",
+    "increase_rt": "1.800",
+    "turnover_rt": "20.80",
+    "idx_price": "4739.229",
+    "idx_increase_rt": "3.06"
   }
 ]
