@@ -58,6 +58,43 @@ def sample_style_rotation_payload():
     }
 
 
+def sample_guorn_meta_payload():
+    return {
+        "status": "ok",
+        "data": {
+            "latest_date": "2026/07/24",
+            "pepb": {
+                "industry": [
+                    {
+                        "ticker": "801010",
+                        "name": "申万农林牧渔",
+                        "month_return": 0.05462579117552879,
+                        "year_return": -0.16142622086914604,
+                        "PE": 75.3919448852539,
+                        "PEPercentile": 0.4899919935948759,
+                        "PB": 2.0235049724578857,
+                        "PBPercentile": 0.009607686148919135,
+                        "PEPB": 152.55597535858215,
+                        "PEPBPercentile": 0.4467574059247398,
+                    },
+                    {
+                        "ticker": "801030",
+                        "name": "申万基础化工",
+                        "month_return": -0.15777461230754852,
+                        "year_return": 0.12114999443292618,
+                        "PE": 34.0333,
+                        "PEPercentile": 0.8159,
+                        "PB": 2.1542,
+                        "PBPercentile": 0.4508,
+                        "PEPB": 73.1554,
+                        "PEPBPercentile": 0.8078,
+                    },
+                ]
+            },
+        },
+    }
+
+
 def test_normalize_dataframe_supports_tickflow_trade_date():
     df = pd.DataFrame(
         {
@@ -450,6 +487,36 @@ def test_build_email_html_content_renders_full_bleed_charts_and_fx_chart():
     assert "美元人民币汇率对比图" in content
 
 
+def test_build_email_html_content_renders_guorn_industry_section():
+    content = md.build_email_html_content(
+        [],
+        valuation_items=[],
+        current_time=md.datetime(2026, 7, 25, 15, 30, tzinfo=md.BEIJING_TZ),
+        guorn_industry_rows=md.extract_guorn_industry_valuation_rows(sample_guorn_meta_payload()),
+        guorn_latest_date="2026-07-24",
+    )
+
+    assert "果仁行业估值" in content
+    assert "数据日期 2026-07-24" in content
+    assert "801010" in content
+    assert "申万农林牧渔" in content
+    assert "5.46%" in content
+    assert "-16.14%" in content
+    assert "44.68%" in content
+
+
+def test_build_email_html_content_renders_guorn_failure_notice():
+    content = md.build_email_html_content(
+        [],
+        valuation_items=[],
+        current_time=md.datetime(2026, 7, 25, 15, 30, tzinfo=md.BEIJING_TZ),
+        guorn_error_message="行业估值数据获取失败，本次邮件未附加该表",
+    )
+
+    assert "果仁行业估值" in content
+    assert "行业估值数据获取失败，本次邮件未附加该表" in content
+
+
 def test_build_email_content_includes_style_rotation_section():
     payload = sample_style_rotation_payload()
 
@@ -602,6 +669,9 @@ targets:
         style_rotation_payload=None,
         style_rotation_as_of_label=None,
         style_rotation_chart_path=None,
+        guorn_industry_rows=None,
+        guorn_latest_date=None,
+        guorn_error_message=None,
     ):
         captured.update(
             {
@@ -611,6 +681,9 @@ targets:
                 "style_rotation_payload": style_rotation_payload,
                 "style_rotation_as_of_label": style_rotation_as_of_label,
                 "style_rotation_chart_path": style_rotation_chart_path,
+                "guorn_industry_rows": guorn_industry_rows,
+                "guorn_latest_date": guorn_latest_date,
+                "guorn_error_message": guorn_error_message,
             }
         )
 
@@ -714,10 +787,16 @@ targets:
         style_rotation_payload=None,
         style_rotation_as_of_label=None,
         style_rotation_chart_path=None,
+        guorn_industry_rows=None,
+        guorn_latest_date=None,
+        guorn_error_message=None,
     ):
         captured["sent"] = True
         captured["style_rotation_payload"] = style_rotation_payload
         captured["style_rotation_chart_path"] = style_rotation_chart_path
+        captured["guorn_industry_rows"] = guorn_industry_rows
+        captured["guorn_latest_date"] = guorn_latest_date
+        captured["guorn_error_message"] = guorn_error_message
 
     monkeypatch.setattr(md, "send_email", fake_send_email)
 
@@ -728,6 +807,181 @@ targets:
     assert captured["style_rotation_payload"] is None
     assert captured["style_rotation_chart_path"] is None
     assert "风格轮动邮件区块生成失败" in output
+
+
+def test_main_passes_guorn_section_data_to_email(monkeypatch, tmp_path):
+    workspace_tmp = tmp_path / "guorn_success"
+    workspace_tmp.mkdir()
+    monkeypatch.setenv("WEBHOOK_URL", "https://example.invalid/webhook")
+    monkeypatch.setenv("CONFIG_PATH", str(workspace_tmp / "config.yaml"))
+    monkeypatch.setenv("RECEIVER_EMAIL", "alice@example.com")
+    monkeypatch.setenv("SMTP_USER", "sender@example.com")
+    monkeypatch.setenv("SMTP_PASS", "secret")
+    monkeypatch.setenv("GUORN_COOKIE", "cookie=value")
+
+    (workspace_tmp / "config.yaml").write_text(
+        """
+targets:
+  - name: "沪深300"
+    code: "000300"
+    type: "valuation"
+""".strip(),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(md, "fetch_cn_10y_bond_yield", lambda: None)
+    monkeypatch.setattr(
+        md,
+        "fetch_cn_10y_bond_history_with_archive_fallback",
+        lambda: (
+            pd.DataFrame({"date": pd.to_datetime(["2026-07-24"]), "yield_pct": [1.7]}),
+            {"data_source": "live", "archive_latest_date": None},
+        ),
+    )
+    monkeypatch.setattr(
+        md,
+        "fetch_target_index_metrics",
+        lambda target: {
+            "index_code": "000300",
+            "index_name": "沪深300",
+            "index_dividend_yield": 2.46,
+            "index_valuation_date": "2026-07-24",
+            "index_valuation_metrics": {"PE(TTM)": {"current": 12.3, "percentiles": {"5Y": 55.0}}},
+        },
+    )
+    monkeypatch.setattr(md, "attach_equity_bond_spread", lambda item, bond_history: None)
+    monkeypatch.setattr(md, "send_webhook", lambda *args, **kwargs: None)
+    monkeypatch.setattr("prototype_fx_chart.generate_fx_chart", lambda output_dir: None)
+    monkeypatch.setattr("prototype_valuation_percentile_chart.generate_valuation_percentile_chart", lambda target, output_dir: None)
+    monkeypatch.setattr(
+        "preview_style_rotation_email.collect_style_rotation_email_payloads",
+        lambda output_dir: (_ for _ in ()).throw(RuntimeError("skip style")),
+    )
+
+    archived = {}
+    monkeypatch.setattr(md, "fetch_guorn_meta_payload", lambda cookie: sample_guorn_meta_payload())
+    monkeypatch.setattr(
+        md,
+        "archive_guorn_meta_snapshot",
+        lambda payload, archive_root=md.ARCHIVE_ROOT: archived.update(
+            {"latest_date": md.extract_guorn_latest_date(payload)}
+        )
+        or {
+            "snapshot_date": "2026-07-24",
+            "path": archive_root / "guorn_meta" / "2026-07-24.json",
+            "status": "created",
+        },
+    )
+
+    captured = {}
+
+    def fake_send_email(
+        config,
+        triggered_items,
+        valuation_items=None,
+        current_time=None,
+        chart_paths=None,
+        fx_chart_path=None,
+        style_rotation_payload=None,
+        style_rotation_as_of_label=None,
+        style_rotation_chart_path=None,
+        guorn_industry_rows=None,
+        guorn_latest_date=None,
+        guorn_error_message=None,
+    ):
+        captured["guorn_industry_rows"] = guorn_industry_rows
+        captured["guorn_latest_date"] = guorn_latest_date
+        captured["guorn_error_message"] = guorn_error_message
+
+    monkeypatch.setattr(md, "send_email", fake_send_email)
+
+    md.main()
+
+    assert archived["latest_date"] == "2026-07-24"
+    assert len(captured["guorn_industry_rows"]) == 2
+    assert captured["guorn_latest_date"] == "2026-07-24"
+    assert captured["guorn_error_message"] is None
+
+
+def test_main_still_sends_email_when_guorn_fetch_fails(monkeypatch, capsys, tmp_path):
+    workspace_tmp = tmp_path / "guorn_failure"
+    workspace_tmp.mkdir()
+    monkeypatch.setenv("WEBHOOK_URL", "https://example.invalid/webhook")
+    monkeypatch.setenv("CONFIG_PATH", str(workspace_tmp / "config.yaml"))
+    monkeypatch.setenv("RECEIVER_EMAIL", "alice@example.com")
+    monkeypatch.setenv("SMTP_USER", "sender@example.com")
+    monkeypatch.setenv("SMTP_PASS", "secret")
+    monkeypatch.setenv("GUORN_COOKIE", "cookie=value")
+
+    (workspace_tmp / "config.yaml").write_text(
+        """
+targets:
+  - name: "沪深300"
+    code: "000300"
+    type: "valuation"
+""".strip(),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(md, "fetch_cn_10y_bond_yield", lambda: None)
+    monkeypatch.setattr(
+        md,
+        "fetch_cn_10y_bond_history_with_archive_fallback",
+        lambda: (
+            pd.DataFrame({"date": pd.to_datetime(["2026-07-24"]), "yield_pct": [1.7]}),
+            {"data_source": "live", "archive_latest_date": None},
+        ),
+    )
+    monkeypatch.setattr(
+        md,
+        "fetch_target_index_metrics",
+        lambda target: {
+            "index_code": "000300",
+            "index_name": "沪深300",
+            "index_dividend_yield": 2.46,
+            "index_valuation_date": "2026-07-24",
+            "index_valuation_metrics": {"PE(TTM)": {"current": 12.3, "percentiles": {"5Y": 55.0}}},
+        },
+    )
+    monkeypatch.setattr(md, "attach_equity_bond_spread", lambda item, bond_history: None)
+    monkeypatch.setattr(md, "send_webhook", lambda *args, **kwargs: None)
+    monkeypatch.setattr("prototype_fx_chart.generate_fx_chart", lambda output_dir: None)
+    monkeypatch.setattr("prototype_valuation_percentile_chart.generate_valuation_percentile_chart", lambda target, output_dir: None)
+    monkeypatch.setattr(
+        "preview_style_rotation_email.collect_style_rotation_email_payloads",
+        lambda output_dir: (_ for _ in ()).throw(RuntimeError("skip style")),
+    )
+    monkeypatch.setattr(md, "fetch_guorn_meta_payload", lambda cookie: (_ for _ in ()).throw(RuntimeError("guorn failed")))
+
+    captured = {}
+
+    def fake_send_email(
+        config,
+        triggered_items,
+        valuation_items=None,
+        current_time=None,
+        chart_paths=None,
+        fx_chart_path=None,
+        style_rotation_payload=None,
+        style_rotation_as_of_label=None,
+        style_rotation_chart_path=None,
+        guorn_industry_rows=None,
+        guorn_latest_date=None,
+        guorn_error_message=None,
+    ):
+        captured["guorn_industry_rows"] = guorn_industry_rows
+        captured["guorn_latest_date"] = guorn_latest_date
+        captured["guorn_error_message"] = guorn_error_message
+
+    monkeypatch.setattr(md, "send_email", fake_send_email)
+
+    md.main()
+
+    output = capsys.readouterr().out
+    assert captured["guorn_industry_rows"] is None
+    assert captured["guorn_latest_date"] is None
+    assert captured["guorn_error_message"] == md.DEFAULT_GUORN_SECTION_ERROR
+    assert "Guorn 行业估值获取失败" in output
 
 
 def test_load_archive_records_reads_index_archive(tmp_path):
@@ -749,6 +1003,75 @@ def test_load_archive_records_reads_index_archive(tmp_path):
     )
 
     assert records == [{"trdDt": "2026-05-12", "pETtm": 10.84}]
+
+
+def test_extract_guorn_latest_date_normalizes_value():
+    assert md.extract_guorn_latest_date(sample_guorn_meta_payload()) == "2026-07-24"
+
+
+def test_extract_guorn_industry_valuation_rows_returns_rows():
+    payload = sample_guorn_meta_payload()
+    rows = md.extract_guorn_industry_valuation_rows(payload)
+
+    assert rows == payload["data"]["pepb"]["industry"]
+
+
+def test_extract_guorn_industry_valuation_rows_rejects_missing_section():
+    with pytest.raises(ValueError, match="Guorn industry valuation rows missing"):
+        md.extract_guorn_industry_valuation_rows(
+            {"status": "ok", "data": {"latest_date": "2026/07/24", "pepb": {}}}
+        )
+
+
+def test_archive_guorn_meta_snapshot_writes_date_named_file(tmp_path):
+    archive_root = tmp_path / "data_archive"
+    payload = sample_guorn_meta_payload()
+
+    result = md.archive_guorn_meta_snapshot(
+        payload,
+        archive_root=archive_root,
+    )
+
+    output_path = archive_root / "guorn_meta" / "2026-07-24.json"
+    assert output_path.exists()
+    assert result["snapshot_date"] == "2026-07-24"
+    assert result["status"] == "created"
+    stored = json.loads(output_path.read_text(encoding="utf-8"))
+    assert stored == payload
+
+
+def test_archive_guorn_meta_snapshot_detects_unchanged_payload(tmp_path, monkeypatch):
+    archive_root = tmp_path / "data_archive"
+    writes = []
+    original_write_text = Path.write_text
+
+    def spy_write_text(self, data, *args, **kwargs):
+        writes.append((self, data))
+        return original_write_text(self, data, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "write_text", spy_write_text)
+
+    md.archive_guorn_meta_snapshot(sample_guorn_meta_payload(), archive_root=archive_root)
+    result = md.archive_guorn_meta_snapshot(sample_guorn_meta_payload(), archive_root=archive_root)
+
+    assert result["status"] == "unchanged"
+    assert len(writes) == 1
+
+
+def test_archive_guorn_meta_snapshot_overwrites_changed_payload(tmp_path):
+    archive_root = tmp_path / "data_archive"
+    md.archive_guorn_meta_snapshot(sample_guorn_meta_payload(), archive_root=archive_root)
+
+    updated = sample_guorn_meta_payload()
+    updated["data"]["pepb"]["industry"][0]["PE"] = 88.88
+
+    result = md.archive_guorn_meta_snapshot(updated, archive_root=archive_root)
+    stored = json.loads(
+        (archive_root / "guorn_meta" / "2026-07-24.json").read_text(encoding="utf-8")
+    )
+
+    assert result["status"] == "updated"
+    assert stored["data"]["pepb"]["industry"][0]["PE"] == 88.88
 
 
 def test_is_archive_fresh_rejects_records_older_than_seven_days():

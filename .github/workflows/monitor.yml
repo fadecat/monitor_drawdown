@@ -43,5 +43,6 @@ jobs:
           RECEIVER_EMAIL: ${{ secrets.RECEIVER_EMAIL }}
           SMTP_USER: ${{ secrets.SMTP_USER }}
           SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          GUORN_COOKIE: ${{ secrets.GUORN_COOKIE }}
           CONFIG_PATH: ./config.yaml
         run: python monitor_drawdown.py

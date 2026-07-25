@@ -34,6 +34,9 @@ DEFAULT_INDEX_EOD_PRICE_URL_TEMPLATE = "https://cdn.efunds.com.cn/etf-net/index_
 DEFAULT_INDEX_VALUATION_PERCENTILE_URL_TEMPLATE = (
     "https://cdn.efunds.com.cn/etf-net/index_valuation_percentile_{index_code}.json"
 )
+GUORN_META_URL = "https://guorn.com/stock/query/meta"
+DEFAULT_GUORN_TIMEOUT = 30
+DEFAULT_GUORN_SECTION_ERROR = "行业估值数据获取失败，本次邮件未附加该表"
 DEFAULT_EMAIL_SMTP_HOST = "smtp.qq.com"
 DEFAULT_EMAIL_SMTP_PORT = 465
 DEFAULT_EMAIL_SUBJECT = "核心标的监控告警"
@@ -477,10 +480,95 @@ def build_index_valuation_percentile_url(index_code: str) -> str:
     return DEFAULT_INDEX_VALUATION_PERCENTILE_URL_TEMPLATE.format(index_code=digits)
 
 
+def build_guorn_meta_headers(cookie: str) -> Dict[str, str]:
+    token = str(cookie or "").strip()
+    if not token:
+        raise RuntimeError("缺少环境变量 GUORN_COOKIE")
+
+    return {
+        "Accept": "application/json, text/javascript, */*; q=0.01",
+        "Referer": "https://guorn.com/stock/query/",
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/150.0.0.0 Safari/537.36 Edg/150.0.0.0"
+        ),
+        "X-Requested-With": "XMLHttpRequest",
+        "Cookie": token,
+    }
+
+
 def fetch_json_response(name: str, url: str) -> object:
     response = run_with_retry(name, lambda: requests.get(url, timeout=15))
     response.raise_for_status()
     return response.json()
+
+
+def fetch_guorn_meta_payload(cookie: str, request_ts: Optional[int] = None) -> Dict[str, Any]:
+    ts = request_ts if request_ts is not None else int(time.time() * 1000)
+    response = run_with_retry(
+        "guorn_meta",
+        lambda: requests.get(
+            GUORN_META_URL,
+            params={"_": ts},
+            headers=build_guorn_meta_headers(cookie),
+            timeout=DEFAULT_GUORN_TIMEOUT,
+        ),
+    )
+    response.raise_for_status()
+    payload = response.json()
+    if not isinstance(payload, dict):
+        raise ValueError("Guorn meta payload must be an object")
+    if str(payload.get("status") or "").strip().lower() != "ok":
+        raise ValueError(f"Guorn meta status not ok: {payload.get('status')}")
+    return payload
+
+
+def extract_guorn_latest_date(payload: Dict[str, Any]) -> str:
+    data = payload.get("data")
+    if not isinstance(data, dict):
+        raise ValueError("Guorn meta payload missing data")
+    latest_date = parse_optional_date(data.get("latest_date"))
+    if latest_date is None:
+        raise ValueError("Guorn latest_date missing")
+    return latest_date.strftime("%Y-%m-%d")
+
+
+def extract_guorn_industry_valuation_rows(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
+    data = payload.get("data")
+    if not isinstance(data, dict):
+        raise ValueError("Guorn meta payload missing data")
+    pepb = data.get("pepb")
+    if not isinstance(pepb, dict):
+        raise ValueError("Guorn meta payload missing pepb")
+    rows = pepb.get("industry")
+    if not isinstance(rows, list) or not rows:
+        raise ValueError("Guorn industry valuation rows missing")
+    return [row for row in rows if isinstance(row, dict)]
+
+
+def archive_guorn_meta_snapshot(
+    payload: Dict[str, Any],
+    archive_root: Path = ARCHIVE_ROOT,
+) -> Dict[str, Any]:
+    snapshot_date = extract_guorn_latest_date(payload)
+    output_path = archive_root / "guorn_meta" / f"{snapshot_date}.json"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    normalized = json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    if not output_path.exists():
+        output_path.write_text(normalized, encoding="utf-8")
+        print(f"[INFO] Guorn 快照已归档: {output_path}")
+        return {"snapshot_date": snapshot_date, "path": output_path, "status": "created"}
+
+    existing = output_path.read_text(encoding="utf-8")
+    if existing == normalized:
+        print(f"[INFO] Guorn 快照无变化，跳过覆盖: {output_path}")
+        return {"snapshot_date": snapshot_date, "path": output_path, "status": "unchanged"}
+
+    output_path.write_text(normalized, encoding="utf-8")
+    print(f"[WARN] Guorn 快照内容变更，已覆盖: {output_path}")
+    return {"snapshot_date": snapshot_date, "path": output_path, "status": "updated"}
 
 
 def parse_index_detail_response(payload: object, fallback_index_code: str = "") -> Dict:
@@ -2019,6 +2107,100 @@ def _render_style_rotation_email_section(
     )
 
 
+def _render_guorn_industry_valuation_email_section(
+    *,
+    industry_rows: Optional[List[Dict[str, Any]]],
+    latest_date: Optional[str],
+    error_message: Optional[str],
+) -> str:
+    title = (
+        f'<div style="font-size:18px;font-weight:700;color:{EMAIL_TEXT_PRIMARY}">果仁行业估值</div>'
+        f'<div style="font-size:12px;color:{EMAIL_LABEL_COLOR};margin-top:4px">'
+        f'数据日期 {escape(str(latest_date or "-"))}</div>'
+    )
+
+    if error_message:
+        return (
+            f'<tr><td style="padding:24px 28px 0 28px">'
+            f'<div style="border-top:1px solid {EMAIL_BORDER_CARD_SPLIT};padding-top:24px">'
+            f'{title}'
+            f'<div style="font-size:12px;color:{EMAIL_MUTED_COLOR};margin-top:10px">'
+            f'{escape(error_message)}</div>'
+            f'</div></td></tr>'
+        )
+
+    rows = list(industry_rows or [])
+    if not rows:
+        return ""
+
+    headers = [
+        "序号",
+        "指数代码",
+        "指数名称",
+        "近一月涨幅",
+        "近一年涨幅",
+        "PE",
+        "PE5年分位点",
+        "PB",
+        "PB5年分位点",
+        "PEXPB",
+        "PEXPB5年分位点",
+    ]
+    header_html = "".join(
+        f'<th style="padding:8px 10px;border-bottom:1px solid {EMAIL_BORDER_CARD_SPLIT};'
+        f'text-align:left;font-size:12px;color:{EMAIL_LABEL_COLOR};white-space:nowrap">{escape(label)}</th>'
+        for label in headers
+    )
+
+    body_rows = []
+    for idx, row in enumerate(rows, start=1):
+        month_return = parse_float(row.get("month_return"))
+        year_return = parse_float(row.get("year_return"))
+        pe_percentile = parse_float(row.get("PEPercentile"))
+        pb_percentile = parse_float(row.get("PBPercentile"))
+        pepb_percentile = parse_float(row.get("PEPBPercentile"))
+        cells = [
+            str(idx),
+            str(row.get("ticker") or "-"),
+            str(row.get("name") or "-"),
+            format_optional_percent(month_return * 100, decimals=2, strip=False) if month_return is not None else "-",
+            format_optional_percent(year_return * 100, decimals=2, strip=False) if year_return is not None else "-",
+            format_optional_number(row.get("PE"), decimals=2, strip=False),
+            format_optional_percent(pe_percentile * 100, decimals=2, strip=False) if pe_percentile is not None else "-",
+            format_optional_number(row.get("PB"), decimals=2, strip=False),
+            format_optional_percent(pb_percentile * 100, decimals=2, strip=False) if pb_percentile is not None else "-",
+            format_optional_number(row.get("PEPB"), decimals=2, strip=False),
+            format_optional_percent(pepb_percentile * 100, decimals=2, strip=False)
+            if pepb_percentile is not None
+            else "-",
+        ]
+        body_rows.append(
+            "<tr>"
+            + "".join(
+                f'<td style="padding:8px 10px;border-bottom:1px solid {EMAIL_BORDER_CARD_SPLIT};'
+                f'font-size:12px;color:{EMAIL_TEXT_PRIMARY};white-space:nowrap">{escape(cell)}</td>'
+                for cell in cells
+            )
+            + "</tr>"
+        )
+
+    table_html = (
+        f'<div style="margin-top:14px;overflow-x:auto">'
+        f'<table role="presentation" cellpadding="0" cellspacing="0" border="0" '
+        f'style="width:100%;border-collapse:collapse">'
+        f'<thead><tr>{header_html}</tr></thead>'
+        f'<tbody>{"".join(body_rows)}</tbody>'
+        f'</table></div>'
+    )
+
+    return (
+        f'<tr><td style="padding:24px 28px 0 28px">'
+        f'<div style="border-top:1px solid {EMAIL_BORDER_CARD_SPLIT};padding-top:24px">'
+        f'{title}{table_html}'
+        f'</div></td></tr>'
+    )
+
+
 def build_email_html_content(
     triggered_items: List[Dict],
     valuation_items: Optional[List[Dict]] = None,
@@ -2028,6 +2210,9 @@ def build_email_html_content(
     style_rotation_payload: Optional[Dict[str, Any]] = None,
     style_rotation_as_of_label: Optional[str] = None,
     style_rotation_chart_path: Optional[Path] = None,
+    guorn_industry_rows: Optional[List[Dict[str, Any]]] = None,
+    guorn_latest_date: Optional[str] = None,
+    guorn_error_message: Optional[str] = None,
 ) -> str:
     now_str = escape((current_time or now_in_beijing()).strftime("%Y-%m-%d %H:%M"))
 
@@ -2149,6 +2334,11 @@ def build_email_html_content(
         style_rotation_as_of_label=style_rotation_as_of_label,
         style_rotation_chart_path=style_rotation_chart_path,
     )
+    guorn_section = _render_guorn_industry_valuation_email_section(
+        industry_rows=guorn_industry_rows,
+        latest_date=guorn_latest_date,
+        error_message=guorn_error_message,
+    )
 
     footer = (
         f'<tr><td style="padding:28px 28px 22px 28px;border-top:1px solid {EMAIL_BORDER_CARD_SPLIT};margin-top:24px">'
@@ -2179,6 +2369,7 @@ def build_email_html_content(
         f'<tr><td style="padding:14px 28px 0 28px">{global_info}</td></tr>'
         + "".join(card_rows)
         + style_rotation_section
+        + guorn_section
         + footer
         + '</table></td></tr></table></body></html>'
     )
@@ -2196,6 +2387,9 @@ def build_email_message(
     style_rotation_payload: Optional[Dict[str, Any]] = None,
     style_rotation_as_of_label: Optional[str] = None,
     style_rotation_chart_path: Optional[Path] = None,
+    guorn_industry_rows: Optional[List[Dict[str, Any]]] = None,
+    guorn_latest_date: Optional[str] = None,
+    guorn_error_message: Optional[str] = None,
 ) -> EmailMessage:
     message = EmailMessage()
     message["From"] = sender
@@ -2220,6 +2414,9 @@ def build_email_message(
             style_rotation_payload=style_rotation_payload,
             style_rotation_as_of_label=style_rotation_as_of_label,
             style_rotation_chart_path=style_rotation_chart_path,
+            guorn_industry_rows=guorn_industry_rows,
+            guorn_latest_date=guorn_latest_date,
+            guorn_error_message=guorn_error_message,
         ),
         subtype="html",
     )
@@ -2276,6 +2473,9 @@ def send_email(
     style_rotation_payload: Optional[Dict[str, Any]] = None,
     style_rotation_as_of_label: Optional[str] = None,
     style_rotation_chart_path: Optional[Path] = None,
+    guorn_industry_rows: Optional[List[Dict[str, Any]]] = None,
+    guorn_latest_date: Optional[str] = None,
+    guorn_error_message: Optional[str] = None,
 ) -> None:
     message = build_email_message(
         config["sender"],
@@ -2289,6 +2489,9 @@ def send_email(
         style_rotation_payload=style_rotation_payload,
         style_rotation_as_of_label=style_rotation_as_of_label,
         style_rotation_chart_path=style_rotation_chart_path,
+        guorn_industry_rows=guorn_industry_rows,
+        guorn_latest_date=guorn_latest_date,
+        guorn_error_message=guorn_error_message,
     )
     with smtplib.SMTP_SSL(config["smtp_host"], config["smtp_port"], timeout=15) as smtp:
         smtp.login(config["username"], config["password"])
@@ -2503,6 +2706,23 @@ def main() -> None:
                 style_rotation_payload: Optional[Dict[str, Any]] = None
                 style_rotation_as_of_label: Optional[str] = None
                 style_rotation_chart_path: Optional[Path] = None
+                guorn_industry_rows: Optional[List[Dict[str, Any]]] = None
+                guorn_latest_date: Optional[str] = None
+                guorn_error_message: Optional[str] = None
+                guorn_cookie = os.getenv("GUORN_COOKIE", "").strip()
+                if guorn_cookie:
+                    try:
+                        guorn_payload = fetch_guorn_meta_payload(guorn_cookie)
+                        archive_guorn_meta_snapshot(guorn_payload)
+                        guorn_latest_date = extract_guorn_latest_date(guorn_payload)
+                        guorn_industry_rows = extract_guorn_industry_valuation_rows(guorn_payload)
+                        print(f"[INFO] Guorn 行业估值已加载: {guorn_latest_date}, {len(guorn_industry_rows)} 行")
+                    except Exception as exc:  # noqa: BLE001
+                        guorn_error_message = DEFAULT_GUORN_SECTION_ERROR
+                        print(f"[WARN] Guorn 行业估值获取失败: {exc}")
+                else:
+                    guorn_error_message = DEFAULT_GUORN_SECTION_ERROR
+                    print("[WARN] 未配置 GUORN_COOKIE，邮件将不附加果仁行业估值。")
                 try:
                     from pathlib import Path as _Path
                     from prototype_fx_chart import generate_fx_chart
@@ -2561,6 +2781,9 @@ def main() -> None:
                     style_rotation_payload=style_rotation_payload,
                     style_rotation_as_of_label=style_rotation_as_of_label,
                     style_rotation_chart_path=style_rotation_chart_path,
+                    guorn_industry_rows=guorn_industry_rows,
+                    guorn_latest_date=guorn_latest_date,
+                    guorn_error_message=guorn_error_message,
                 )
             else:
                 print("[INFO] 未配置 RECEIVER_EMAIL/SMTP_USER/SMTP_PASS，跳过邮件发送。")
