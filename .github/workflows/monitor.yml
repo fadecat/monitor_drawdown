@@ -52,12 +52,12 @@ jobs:
 
       - name: Commit Guorn archive if changed
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data_archive/guorn_meta/
-          if git diff --cached --quiet; then
-            echo "guorn archive unchanged, skip commit"
+          if [ -z "$(git status --porcelain -- data_archive/guorn_meta)" ]; then
+            echo "guorn archive unchanged or missing, skip commit"
           else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add -A data_archive/guorn_meta
             git commit -m "chore: archive guorn meta snapshot"
             git push
           fi
