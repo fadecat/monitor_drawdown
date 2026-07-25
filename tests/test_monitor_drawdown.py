@@ -503,6 +503,12 @@ def test_build_email_html_content_renders_guorn_industry_section():
     assert "5.46%" in content
     assert "-16.14%" in content
     assert "44.68%" in content
+    assert content.index("801010") < content.index("801030")
+    assert f'<b style="color:{md.EMAIL_LOW_COLOR}">0.96%</b>' in content
+    assert f'<b style="color:{md.EMAIL_HIGH_COLOR}">81.59%</b>' in content
+    assert f'<b style="color:{md.EMAIL_HIGH_COLOR}">5.46%</b>' in content
+    assert f'<b style="color:{md.EMAIL_LOW_COLOR}">-16.14%</b>' in content
+    assert content.count(f'<tr style="background:{md.EMAIL_BORDER_ROW}">') == 1
 
 
 def test_build_email_html_content_renders_guorn_failure_notice():

@@ -1903,6 +1903,18 @@ def _format_percentile_cell(value: object) -> str:
     return text
 
 
+def _format_signed_return_cell(value: object) -> str:
+    parsed = parse_float(value)
+    if parsed is None:
+        return "-"
+    text = escape(format_optional_percent(parsed * 100, decimals=2, strip=False))
+    if parsed > 0:
+        return f'<b style="color:{EMAIL_HIGH_COLOR}">{text}</b>'
+    if parsed < 0:
+        return f'<b style="color:{EMAIL_LOW_COLOR}">{text}</b>'
+    return text
+
+
 EMAIL_SUMMARY_NAME_MAX_LEN = 10
 
 
@@ -2113,6 +2125,12 @@ def _render_guorn_industry_valuation_email_section(
     latest_date: Optional[str],
     error_message: Optional[str],
 ) -> str:
+    def _guorn_sort_key(row: Dict[str, Any]) -> Tuple[int, float]:
+        percentile = parse_float(row.get("PBPercentile"))
+        if percentile is None:
+            return (1, 0.0)
+        return (0, percentile)
+
     title = (
         f'<div style="font-size:18px;font-weight:700;color:{EMAIL_TEXT_PRIMARY}">果仁行业估值</div>'
         f'<div style="font-size:12px;color:{EMAIL_LABEL_COLOR};margin-top:4px">'
@@ -2129,7 +2147,7 @@ def _render_guorn_industry_valuation_email_section(
             f'</div></td></tr>'
         )
 
-    rows = list(industry_rows or [])
+    rows = sorted(industry_rows or [], key=_guorn_sort_key)
     if not rows:
         return ""
 
@@ -2159,26 +2177,27 @@ def _render_guorn_industry_valuation_email_section(
         pe_percentile = parse_float(row.get("PEPercentile"))
         pb_percentile = parse_float(row.get("PBPercentile"))
         pepb_percentile = parse_float(row.get("PEPBPercentile"))
+        row_background = "#ffffff" if idx % 2 == 1 else EMAIL_BORDER_ROW
         cells = [
             str(idx),
             str(row.get("ticker") or "-"),
             str(row.get("name") or "-"),
-            format_optional_percent(month_return * 100, decimals=2, strip=False) if month_return is not None else "-",
-            format_optional_percent(year_return * 100, decimals=2, strip=False) if year_return is not None else "-",
+            _format_signed_return_cell(month_return),
+            _format_signed_return_cell(year_return),
             format_optional_number(row.get("PE"), decimals=2, strip=False),
-            format_optional_percent(pe_percentile * 100, decimals=2, strip=False) if pe_percentile is not None else "-",
+            _format_percentile_cell(pe_percentile * 100) if pe_percentile is not None else "-",
             format_optional_number(row.get("PB"), decimals=2, strip=False),
-            format_optional_percent(pb_percentile * 100, decimals=2, strip=False) if pb_percentile is not None else "-",
+            _format_percentile_cell(pb_percentile * 100) if pb_percentile is not None else "-",
             format_optional_number(row.get("PEPB"), decimals=2, strip=False),
-            format_optional_percent(pepb_percentile * 100, decimals=2, strip=False)
+            _format_percentile_cell(pepb_percentile * 100)
             if pepb_percentile is not None
             else "-",
         ]
         body_rows.append(
-            "<tr>"
+            f'<tr style="background:{row_background}">'
             + "".join(
                 f'<td style="padding:8px 10px;border-bottom:1px solid {EMAIL_BORDER_CARD_SPLIT};'
-                f'font-size:12px;color:{EMAIL_TEXT_PRIMARY};white-space:nowrap">{escape(cell)}</td>'
+                f'font-size:12px;color:{EMAIL_TEXT_PRIMARY};white-space:nowrap">{cell}</td>'
                 for cell in cells
             )
             + "</tr>"
