@@ -39,7 +39,7 @@ DEFAULT_GUORN_TIMEOUT = 30
 DEFAULT_GUORN_SECTION_ERROR = "行业估值数据获取失败，本次邮件未附加该表"
 DEFAULT_EMAIL_SMTP_HOST = "smtp.qq.com"
 DEFAULT_EMAIL_SMTP_PORT = 465
-DEFAULT_EMAIL_SUBJECT = "核心标的监控告警"
+DEFAULT_EMAIL_SUBJECT = "市场估值"
 
 
 BEIJING_TZ = timezone(timedelta(hours=8))
@@ -1565,6 +1565,20 @@ def build_webhook_payload(triggered_items: List[Dict], current_time: Optional[da
     }
 
 
+def build_guorn_failure_webhook_payload(
+    error_message: str,
+    *,
+    current_time: Optional[datetime] = None,
+) -> Dict:
+    now_str = (current_time or now_in_beijing()).strftime("%Y-%m-%d %H:%M:%S")
+    lines = [
+        "**⚠️ 果仁行业估值获取失败**",
+        f"> 触发时间: <font color=\"comment\">{now_str}</font>",
+        f"> 状态: <font color=\"warning\">{escape(error_message)}</font>",
+    ]
+    return {"msgtype": "markdown", "markdown": {"content": "\n".join(lines)}}
+
+
 def split_email_recipients(value: str) -> List[str]:
     recipients: List[str] = []
     for chunk in value.replace(";", ",").split(","):
@@ -2520,6 +2534,10 @@ def send_email(
 
 def send_webhook(webhook_url: str, triggered_items: List[Dict]) -> None:
     payload = build_webhook_payload(triggered_items)
+    send_webhook_payload(webhook_url, payload)
+
+
+def send_webhook_payload(webhook_url: str, payload: Dict) -> None:
     response = requests.post(webhook_url, json=payload, timeout=15)
     response.raise_for_status()
     print(f"[INFO] Webhook 发送成功，状态码: {response.status_code}")
@@ -2739,6 +2757,16 @@ def main() -> None:
                     except Exception as exc:  # noqa: BLE001
                         guorn_error_message = DEFAULT_GUORN_SECTION_ERROR
                         print(f"[WARN] Guorn 行业估值获取失败: {exc}")
+                        try:
+                            send_webhook_payload(
+                                webhook_url,
+                                build_guorn_failure_webhook_payload(
+                                    f"{DEFAULT_GUORN_SECTION_ERROR}: {exc}",
+                                    current_time=current_time,
+                                ),
+                            )
+                        except Exception as webhook_exc:  # noqa: BLE001
+                            print(f"[WARN] Guorn 失败通知 Webhook 发送失败: {webhook_exc}")
                 else:
                     guorn_error_message = DEFAULT_GUORN_SECTION_ERROR
                     print("[WARN] 未配置 GUORN_COOKIE，邮件将不附加果仁行业估值。")

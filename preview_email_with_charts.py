@@ -1,6 +1,7 @@
 import base64
+import json
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import local_env
 import monitor_drawdown as md
@@ -82,6 +83,36 @@ def generate_fx_chart_path() -> Optional[Path]:
     return generate_fx_chart(output_dir)
 
 
+def collect_style_rotation_preview_payloads() -> Tuple[Optional[Dict[str, Any]], Optional[str], Optional[Path]]:
+    from preview_style_rotation_email import collect_style_rotation_email_payloads
+
+    payloads = collect_style_rotation_email_payloads(Path(".email_chart_cache"))
+    return (
+        dict(payloads["payload"]),
+        str(payloads["as_of_label"]),
+        Path(payloads["chart_path"]),
+    )
+
+
+def load_guorn_preview_payload() -> Tuple[Optional[List[Dict[str, Any]]], Optional[str], Optional[str]]:
+    raw_path = Path("artifacts/guorn_meta.raw.json")
+    if not raw_path.exists():
+        print(f"[WARN] 未找到果仁快照文件: {raw_path}")
+        return None, None, None
+
+    try:
+        payload = json.loads(raw_path.read_text(encoding="utf-8"))
+        return (
+            md.extract_guorn_industry_valuation_rows(payload),
+            md.extract_guorn_latest_date(payload),
+            None,
+        )
+    except Exception as exc:  # noqa: BLE001
+        message = f"行业估值数据加载失败，本次预览未附加该表: {exc}"
+        print(f"[WARN] {message}")
+        return None, None, message
+
+
 def main() -> int:
     try:
         import sys
@@ -106,6 +137,18 @@ def main() -> int:
         print(f"[WARN] 汇率图生成失败: {exc}")
         fx_chart_path = None
     print(f"[INFO] 外汇图生成: {'OK' if fx_chart_path else 'SKIP'}")
+    try:
+        style_rotation_payload, style_rotation_as_of_label, style_rotation_chart_path = (
+            collect_style_rotation_preview_payloads()
+        )
+        print(f"[INFO] 风格轮动图生成: {'OK' if style_rotation_chart_path else 'SKIP'}")
+    except Exception as exc:  # noqa: BLE001
+        print(f"[WARN] 风格轮动图生成失败: {exc}")
+        style_rotation_payload = None
+        style_rotation_as_of_label = None
+        style_rotation_chart_path = None
+
+    guorn_industry_rows, guorn_latest_date, guorn_error_message = load_guorn_preview_payload()
 
     current_time = md.now_in_beijing()
     html = md.build_email_html_content(
@@ -114,11 +157,19 @@ def main() -> int:
         current_time=current_time,
         chart_paths=chart_paths,
         fx_chart_path=fx_chart_path,
+        style_rotation_payload=style_rotation_payload,
+        style_rotation_as_of_label=style_rotation_as_of_label,
+        style_rotation_chart_path=style_rotation_chart_path,
+        guorn_industry_rows=guorn_industry_rows,
+        guorn_latest_date=guorn_latest_date,
+        guorn_error_message=guorn_error_message,
     )
     for code, path in chart_paths.items():
         html = html.replace(f"cid:equity_bond_{code}", png_to_data_uri(path))
     if fx_chart_path is not None:
         html = html.replace("cid:fx_usd_cny_vs_mid_10y", png_to_data_uri(fx_chart_path))
+    if style_rotation_chart_path is not None:
+        html = html.replace(f"cid:{md.STYLE_ROTATION_CHART_CID}", png_to_data_uri(style_rotation_chart_path))
 
     output_path = Path("email_preview_with_charts.html")
     output_path.write_text(html, encoding="utf-8")

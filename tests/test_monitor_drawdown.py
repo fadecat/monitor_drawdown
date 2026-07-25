@@ -7,6 +7,7 @@ import pandas as pd
 import pytest
 
 import monitor_drawdown as md
+import preview_email_with_charts as preview_email_with_charts
 import prototype_valuation_percentile_chart as valuation_chart
 
 
@@ -573,6 +574,106 @@ def test_build_email_message_attaches_style_rotation_chart(tmp_path):
     assert any(part.get("Content-ID") == "<style_rotation_chart>" for part in related)
 
 
+def test_preview_email_with_charts_main_includes_style_rotation_and_guorn(monkeypatch, tmp_path):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        """
+targets:
+  - name: "沪深300"
+    code: "000300"
+    type: "valuation"
+""".strip(),
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("CONFIG_PATH", str(config_path))
+
+    valuation_png = tmp_path / "valuation.png"
+    valuation_png.write_bytes(b"valuation")
+    fx_png = tmp_path / "fx.png"
+    fx_png.write_bytes(b"fx")
+    style_png = tmp_path / "style.png"
+    style_png.write_bytes(b"style")
+
+    artifact_dir = tmp_path / "artifacts"
+    artifact_dir.mkdir()
+    (artifact_dir / "guorn_meta.raw.json").write_text(
+        json.dumps(sample_guorn_meta_payload(), ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(preview_email_with_charts.local_env, "load_local_env", lambda path: {})
+    monkeypatch.setattr(
+        preview_email_with_charts.local_env,
+        "get_env_value",
+        lambda key, local_values, default=None: str(config_path) if key == "CONFIG_PATH" else default,
+    )
+    monkeypatch.setattr(
+        preview_email_with_charts,
+        "build_valuation_items",
+        lambda path: [{"name": "沪深300", "code": "000300", "index_code": "000300"}],
+    )
+    monkeypatch.setattr(
+        preview_email_with_charts,
+        "generate_chart_paths",
+        lambda items: {"000300": valuation_png},
+    )
+    monkeypatch.setattr(preview_email_with_charts, "generate_fx_chart_path", lambda: fx_png)
+    monkeypatch.setattr(
+        "preview_style_rotation_email.collect_style_rotation_email_payloads",
+        lambda output_dir: {
+            "payload": sample_style_rotation_payload(),
+            "as_of_label": "2026-06-12",
+            "chart_path": style_png,
+        },
+    )
+
+    captured = {}
+
+    def fake_build_email_html_content(
+        triggered_items,
+        valuation_items,
+        current_time,
+        chart_paths=None,
+        fx_chart_path=None,
+        style_rotation_payload=None,
+        style_rotation_as_of_label=None,
+        style_rotation_chart_path=None,
+        guorn_industry_rows=None,
+        guorn_latest_date=None,
+        guorn_error_message=None,
+    ):
+        captured.update(
+            {
+                "style_rotation_payload": style_rotation_payload,
+                "style_rotation_as_of_label": style_rotation_as_of_label,
+                "style_rotation_chart_path": style_rotation_chart_path,
+                "guorn_industry_rows": guorn_industry_rows,
+                "guorn_latest_date": guorn_latest_date,
+                "guorn_error_message": guorn_error_message,
+            }
+        )
+        return "cid:equity_bond_000300 cid:fx_usd_cny_vs_mid_10y cid:style_rotation_chart"
+
+    monkeypatch.setattr(md, "build_email_html_content", fake_build_email_html_content)
+    monkeypatch.setattr(md, "now_in_beijing", lambda: md.datetime(2026, 7, 25, 19, 30, tzinfo=md.BEIJING_TZ))
+
+    assert preview_email_with_charts.main() == 0
+
+    assert captured["style_rotation_payload"] == sample_style_rotation_payload()
+    assert captured["style_rotation_as_of_label"] == "2026-06-12"
+    assert captured["style_rotation_chart_path"] == style_png
+    assert captured["guorn_latest_date"] == "2026-07-24"
+    assert captured["guorn_error_message"] is None
+    assert captured["guorn_industry_rows"][0]["ticker"] == "801010"
+
+    html = (tmp_path / "email_preview_with_charts.html").read_text(encoding="utf-8")
+    assert "cid:equity_bond_000300" not in html
+    assert "cid:fx_usd_cny_vs_mid_10y" not in html
+    assert "cid:style_rotation_chart" not in html
+    assert html.count("data:image/png;base64,") == 3
+
+
 def test_fetch_index_pe_history_retries_on_connection_abort(monkeypatch):
     payload = [
         {"trdDt": "2026-03-20", "pETtm": 9.1},
@@ -950,7 +1051,6 @@ targets:
         },
     )
     monkeypatch.setattr(md, "attach_equity_bond_spread", lambda item, bond_history: None)
-    monkeypatch.setattr(md, "send_webhook", lambda *args, **kwargs: None)
     monkeypatch.setattr("prototype_fx_chart.generate_fx_chart", lambda output_dir: None)
     monkeypatch.setattr("prototype_valuation_percentile_chart.generate_valuation_percentile_chart", lambda target, output_dir: None)
     monkeypatch.setattr(
@@ -958,6 +1058,19 @@ targets:
         lambda output_dir: (_ for _ in ()).throw(RuntimeError("skip style")),
     )
     monkeypatch.setattr(md, "fetch_guorn_meta_payload", lambda cookie: (_ for _ in ()).throw(RuntimeError("guorn failed")))
+    webhook_calls = []
+
+    class FakeWebhookResponse:
+        status_code = 200
+
+        def raise_for_status(self):
+            return None
+
+    def fake_post(url, json=None, timeout=None):
+        webhook_calls.append({"url": url, "json": json, "timeout": timeout})
+        return FakeWebhookResponse()
+
+    monkeypatch.setattr(md.requests, "post", fake_post)
 
     captured = {}
 
@@ -987,6 +1100,10 @@ targets:
     assert captured["guorn_industry_rows"] is None
     assert captured["guorn_latest_date"] is None
     assert captured["guorn_error_message"] == md.DEFAULT_GUORN_SECTION_ERROR
+    assert len(webhook_calls) == 1
+    assert webhook_calls[0]["url"] == "https://example.invalid/webhook"
+    assert webhook_calls[0]["json"]["msgtype"] == "markdown"
+    assert "果仁行业估值获取失败" in webhook_calls[0]["json"]["markdown"]["content"]
     assert "Guorn 行业估值获取失败" in output
 
 
