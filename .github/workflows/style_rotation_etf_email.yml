@@ -1,9 +1,6 @@
 name: Style Rotation ETF Email
 
 on:
-  schedule:
-    # GitHub Actions 使用 UTC，UTC 07:19 = Asia/Shanghai 15:19（收盘后）
-    # - cron: "19 7 * * 1-5"
   workflow_dispatch:
 
 jobs:
