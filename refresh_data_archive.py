@@ -3,7 +3,7 @@ import json
 import re
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Dict, List
+from typing import Callable, Dict, List, Tuple
 
 import akshare as ak
 import pandas as pd
@@ -235,6 +235,14 @@ def refresh_fx_dataset(archive_root: Path, updated_at: str) -> List[Path]:
     return [output_path] if changed else []
 
 
+def run_refresh_step(step_name: str, refresh_fn: Callable[[], List[Path]]) -> Tuple[List[Path], bool]:
+    try:
+        return refresh_fn(), True
+    except Exception as exc:
+        print(f"[WARN] {step_name} archive refresh failed: {exc}")
+        return [], False
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Refresh local archive datasets.")
     parser.add_argument("--config", default="config.yaml")
@@ -255,53 +263,94 @@ def main(argv=None) -> int:
         updated_at = now_iso()
         current_time = datetime.fromisoformat(updated_at)
         changed_paths: List[Path] = []
+        successful_steps = 0
+        failed_steps: List[str] = []
 
         for index_code in index_codes:
-            changed_paths.extend(
-                refresh_index_dataset(
+            eod_paths, eod_ok = run_refresh_step(
+                f"index_eod:{index_code}",
+                lambda index_code=index_code: refresh_index_dataset(
                     archive_root=ARCHIVE_ROOT,
                     dataset_name="index_eod",
                     index_code=index_code,
                     source_url=build_index_eod_price_url(index_code),
                     merge_key="trdDt",
                     updated_at=updated_at,
-                )
+                ),
             )
-            changed_paths.extend(
-                refresh_index_dataset(
+            changed_paths.extend(eod_paths)
+            if eod_ok:
+                successful_steps += 1
+            else:
+                failed_steps.append(f"index_eod:{index_code}")
+
+            dividend_paths, dividend_ok = run_refresh_step(
+                f"index_dividend_ratio:{index_code}",
+                lambda index_code=index_code: refresh_index_dataset(
                     archive_root=ARCHIVE_ROOT,
                     dataset_name="index_dividend_ratio",
                     index_code=index_code,
                     source_url=build_index_dividend_yield_url(index_code),
                     merge_key="trdDt",
                     updated_at=updated_at,
-                )
+                ),
             )
-            changed_paths.extend(
-                refresh_index_dataset(
+            changed_paths.extend(dividend_paths)
+            if dividend_ok:
+                successful_steps += 1
+            else:
+                failed_steps.append(f"index_dividend_ratio:{index_code}")
+
+            valuation_paths, valuation_ok = run_refresh_step(
+                f"index_valuation_percentile:{index_code}",
+                lambda index_code=index_code: refresh_index_dataset(
                     archive_root=ARCHIVE_ROOT,
                     dataset_name="index_valuation_percentile",
                     index_code=index_code,
                     source_url=build_index_valuation_percentile_url(index_code),
                     merge_key="trdDt",
                     updated_at=updated_at,
-                )
+                ),
             )
+            changed_paths.extend(valuation_paths)
+            if valuation_ok:
+                successful_steps += 1
+            else:
+                failed_steps.append(f"index_valuation_percentile:{index_code}")
 
         bond_start_date = (current_time - timedelta(days=365 * 11)).strftime("%Y%m%d")
-        changed_paths.extend(
-            refresh_bond_dataset(
+        bond_paths, bond_ok = run_refresh_step(
+            "bond_10y",
+            lambda: refresh_bond_dataset(
                 archive_root=ARCHIVE_ROOT,
                 updated_at=updated_at,
                 start_date=bond_start_date,
-            )
+            ),
         )
-        changed_paths.extend(
-            refresh_fx_dataset(
+        changed_paths.extend(bond_paths)
+        if bond_ok:
+            successful_steps += 1
+        else:
+            failed_steps.append("bond_10y")
+
+        fx_paths, fx_ok = run_refresh_step(
+            "fx",
+            lambda: refresh_fx_dataset(
                 archive_root=ARCHIVE_ROOT,
                 updated_at=updated_at,
-            )
+            ),
         )
+        changed_paths.extend(fx_paths)
+        if fx_ok:
+            successful_steps += 1
+        else:
+            failed_steps.append("fx")
+
+        if failed_steps:
+            print(f"[WARN] archive refresh completed with partial failures: {', '.join(failed_steps)}")
+        if successful_steps == 0:
+            print("[ERROR] no archive datasets refreshed successfully")
+            return 1
         return 0
     except Exception as exc:
         print(f"[ERROR] {exc}")

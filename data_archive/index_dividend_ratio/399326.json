@@ -1,7 +1,7 @@
 {
   "source": "https://cdn.efunds.com.cn/etf-net/index_dividend_ratio_399326.json",
   "index_code": "399326",
-  "updated_at": "2026-07-01T18:49:28.305908+08:00",
+  "updated_at": "2026-07-25T20:30:23.050436+08:00",
   "records": [
     {
       "dividendYield": 3.1631,
@@ -24807,6 +24807,96 @@
       "dividendYield": 0.7477,
       "trdCode": "399326",
       "trdDt": "2026-06-30"
+    },
+    {
+      "dividendYield": 0.7673,
+      "trdCode": "399326",
+      "trdDt": "2026-07-01"
+    },
+    {
+      "dividendYield": 0.8109,
+      "trdCode": "399326",
+      "trdDt": "2026-07-02"
+    },
+    {
+      "dividendYield": 0.8091,
+      "trdCode": "399326",
+      "trdDt": "2026-07-03"
+    },
+    {
+      "dividendYield": 0.8156,
+      "trdCode": "399326",
+      "trdDt": "2026-07-06"
+    },
+    {
+      "dividendYield": 0.8209,
+      "trdCode": "399326",
+      "trdDt": "2026-07-07"
+    },
+    {
+      "dividendYield": 0.844,
+      "trdCode": "399326",
+      "trdDt": "2026-07-08"
+    },
+    {
+      "dividendYield": 0.8093,
+      "trdCode": "399326",
+      "trdDt": "2026-07-09"
+    },
+    {
+      "dividendYield": 0.8603,
+      "trdCode": "399326",
+      "trdDt": "2026-07-10"
+    },
+    {
+      "dividendYield": 0.8776,
+      "trdCode": "399326",
+      "trdDt": "2026-07-13"
+    },
+    {
+      "dividendYield": 0.8397,
+      "trdCode": "399326",
+      "trdDt": "2026-07-14"
+    },
+    {
+      "dividendYield": 0.8522,
+      "trdCode": "399326",
+      "trdDt": "2026-07-15"
+    },
+    {
+      "dividendYield": 0.8749,
+      "trdCode": "399326",
+      "trdDt": "2026-07-16"
+    },
+    {
+      "dividendYield": 0.9345,
+      "trdCode": "399326",
+      "trdDt": "2026-07-17"
+    },
+    {
+      "dividendYield": 0.9509,
+      "trdCode": "399326",
+      "trdDt": "2026-07-20"
+    },
+    {
+      "dividendYield": 0.8904,
+      "trdCode": "399326",
+      "trdDt": "2026-07-21"
+    },
+    {
+      "dividendYield": 0.9204,
+      "trdCode": "399326",
+      "trdDt": "2026-07-22"
+    },
+    {
+      "dividendYield": 0.9095,
+      "trdCode": "399326",
+      "trdDt": "2026-07-23"
+    },
+    {
+      "dividendYield": 0.9307,
+      "trdCode": "399326",
+      "trdDt": "2026-07-24"
     }
   ]
 }

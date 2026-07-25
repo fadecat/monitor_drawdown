@@ -1,7 +1,7 @@
 {
   "source": "https://cdn.efunds.com.cn/etf-net/index_eod_price_930709.json",
   "index_code": "930709",
-  "updated_at": "2026-07-01T18:49:28.305908+08:00",
+  "updated_at": "2026-07-25T20:30:23.050436+08:00",
   "records": [
     {
       "pctChg1D": null,
@@ -20192,6 +20192,108 @@
       "pxClose": null,
       "trdCode": "930709",
       "trdDt": "2026-07-01"
+    },
+    {
+      "pctChg1D": 0.6665,
+      "pxClose": 1284.846,
+      "trdCode": "930709",
+      "trdDt": "2026-07-02"
+    },
+    {
+      "pctChg1D": 3.0124,
+      "pxClose": 1323.5503,
+      "trdCode": "930709",
+      "trdDt": "2026-07-03"
+    },
+    {
+      "pctChg1D": 0.2785,
+      "pxClose": 1327.2367,
+      "trdCode": "930709",
+      "trdDt": "2026-07-06"
+    },
+    {
+      "pctChg1D": -2.6392,
+      "pxClose": 1292.2087,
+      "trdCode": "930709",
+      "trdDt": "2026-07-07"
+    },
+    {
+      "pctChg1D": 0.1466,
+      "pxClose": 1294.1034,
+      "trdCode": "930709",
+      "trdDt": "2026-07-08"
+    },
+    {
+      "pctChg1D": 0.8137,
+      "pxClose": 1304.6331,
+      "trdCode": "930709",
+      "trdDt": "2026-07-09"
+    },
+    {
+      "pctChg1D": -1.747,
+      "pxClose": 1281.8413,
+      "trdCode": "930709",
+      "trdDt": "2026-07-10"
+    },
+    {
+      "pctChg1D": -1.202,
+      "pxClose": 1266.4334,
+      "trdCode": "930709",
+      "trdDt": "2026-07-13"
+    },
+    {
+      "pctChg1D": 0.4685,
+      "pxClose": 1272.3672,
+      "trdCode": "930709",
+      "trdDt": "2026-07-14"
+    },
+    {
+      "pctChg1D": 3.4439,
+      "pxClose": 1316.1867,
+      "trdCode": "930709",
+      "trdDt": "2026-07-15"
+    },
+    {
+      "pctChg1D": -0.518,
+      "pxClose": 1309.3683,
+      "trdCode": "930709",
+      "trdDt": "2026-07-16"
+    },
+    {
+      "pctChg1D": -2.4164,
+      "pxClose": 1277.7291,
+      "trdCode": "930709",
+      "trdDt": "2026-07-17"
+    },
+    {
+      "pctChg1D": 1.7009,
+      "pxClose": 1299.4624,
+      "trdCode": "930709",
+      "trdDt": "2026-07-20"
+    },
+    {
+      "pctChg1D": 1.8385,
+      "pxClose": 1323.353,
+      "trdCode": "930709",
+      "trdDt": "2026-07-21"
+    },
+    {
+      "pctChg1D": -0.1036,
+      "pxClose": 1321.9814,
+      "trdCode": "930709",
+      "trdDt": "2026-07-22"
+    },
+    {
+      "pctChg1D": 1.6424,
+      "pxClose": 1343.6931,
+      "trdCode": "930709",
+      "trdDt": "2026-07-23"
+    },
+    {
+      "pctChg1D": -1.9151,
+      "pxClose": 1317.9603,
+      "trdCode": "930709",
+      "trdDt": "2026-07-24"
     }
   ]
 }

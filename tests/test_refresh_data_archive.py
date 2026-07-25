@@ -627,6 +627,51 @@ def test_main_returns_zero_when_any_archive_work_succeeds(monkeypatch, tmp_path:
     )
 
 
+def test_main_returns_zero_and_keeps_partial_updates_when_fx_refresh_fails(
+    monkeypatch,
+    tmp_path: Path,
+    capsys,
+):
+    frozen_updated_at = "2026-05-13T15:10:00+08:00"
+    expected_bond_start_date = (
+        datetime.fromisoformat(frozen_updated_at) - timedelta(days=365 * 11)
+    ).strftime("%Y%m%d")
+    changed_bond_path = tmp_path / "archive-root" / "bond_10y" / "china_10y.json"
+    called = {"bond": None, "fx": None}
+
+    monkeypatch.setattr(rda, "ARCHIVE_ROOT", tmp_path / "archive-root")
+    monkeypatch.setattr(rda, "now_iso", lambda: frozen_updated_at)
+    monkeypatch.setattr(rda, "load_config", lambda config_path: [{"code": "dummy"}])
+    monkeypatch.setattr(rda, "resolve_archive_index_codes", lambda targets: [])
+    monkeypatch.setattr(rda, "refresh_index_dataset", lambda *args, **kwargs: [])
+
+    def refresh_bond_dataset_stub(archive_root, updated_at, start_date):
+        called["bond"] = (archive_root, updated_at, start_date)
+        return [changed_bond_path]
+
+    def refresh_fx_dataset_stub(archive_root, updated_at):
+        called["fx"] = (archive_root, updated_at)
+        raise RuntimeError("fx boom")
+
+    monkeypatch.setattr(rda, "refresh_bond_dataset", refresh_bond_dataset_stub)
+    monkeypatch.setattr(rda, "refresh_fx_dataset", refresh_fx_dataset_stub)
+
+    exit_code = rda.main(["--config", "custom-config.yaml"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert called["bond"] == (
+        tmp_path / "archive-root",
+        "2026-05-13T15:10:00+08:00",
+        expected_bond_start_date,
+    )
+    assert called["fx"] == (
+        tmp_path / "archive-root",
+        "2026-05-13T15:10:00+08:00",
+    )
+    assert "[WARN] fx archive refresh failed: fx boom" in captured.out
+
+
 def test_main_returns_one_when_config_parse_fails(monkeypatch, capsys):
     monkeypatch.setattr(rda, "load_config", lambda config_path: (_ for _ in ()).throw(ValueError("bad config")))
 

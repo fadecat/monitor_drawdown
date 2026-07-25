@@ -1,7 +1,7 @@
 {
   "source": "https://cdn.efunds.com.cn/etf-net/index_eod_price_000300.json",
   "index_code": "000300",
-  "updated_at": "2026-07-01T18:49:28.305908+08:00",
+  "updated_at": "2026-07-25T20:30:23.050436+08:00",
   "records": [
     {
       "pctChg1D": null,
@@ -35636,6 +35636,108 @@
       "pxClose": 4958.9773,
       "trdCode": "000300",
       "trdDt": "2026-07-01"
+    },
+    {
+      "pctChg1D": -2.95790021,
+      "pxClose": 4812.2957,
+      "trdCode": "000300",
+      "trdDt": "2026-07-02"
+    },
+    {
+      "pctChg1D": 0.62086792,
+      "pxClose": 4842.1737,
+      "trdCode": "000300",
+      "trdDt": "2026-07-03"
+    },
+    {
+      "pctChg1D": -0.00362854,
+      "pxClose": 4841.998,
+      "trdCode": "000300",
+      "trdDt": "2026-07-06"
+    },
+    {
+      "pctChg1D": -1.02717101,
+      "pxClose": 4792.2624,
+      "trdCode": "000300",
+      "trdDt": "2026-07-07"
+    },
+    {
+      "pctChg1D": -0.76641463,
+      "pxClose": 4755.5338,
+      "trdCode": "000300",
+      "trdDt": "2026-07-08"
+    },
+    {
+      "pctChg1D": 2.53975064,
+      "pxClose": 4876.3125,
+      "trdCode": "000300",
+      "trdDt": "2026-07-09"
+    },
+    {
+      "pctChg1D": -1.95897617,
+      "pxClose": 4780.7867,
+      "trdCode": "000300",
+      "trdDt": "2026-07-10"
+    },
+    {
+      "pctChg1D": -1.78639428,
+      "pxClose": 4695.383,
+      "trdCode": "000300",
+      "trdDt": "2026-07-13"
+    },
+    {
+      "pctChg1D": 2.15358364,
+      "pxClose": 4796.502,
+      "trdCode": "000300",
+      "trdDt": "2026-07-14"
+    },
+    {
+      "pctChg1D": -0.202631,
+      "pxClose": 4786.7828,
+      "trdCode": "000300",
+      "trdDt": "2026-07-15"
+    },
+    {
+      "pctChg1D": -1.84567388,
+      "pxClose": 4698.4344,
+      "trdCode": "000300",
+      "trdDt": "2026-07-16"
+    },
+    {
+      "pctChg1D": -3.60416014,
+      "pxClose": 4529.0953,
+      "trdCode": "000300",
+      "trdDt": "2026-07-17"
+    },
+    {
+      "pctChg1D": 1.52846199,
+      "pxClose": 4598.3208,
+      "trdCode": "000300",
+      "trdDt": "2026-07-20"
+    },
+    {
+      "pctChg1D": 3.06433383,
+      "pxClose": 4739.2287,
+      "trdCode": "000300",
+      "trdDt": "2026-07-21"
+    },
+    {
+      "pctChg1D": -0.4638835,
+      "pxClose": 4717.2442,
+      "trdCode": "000300",
+      "trdDt": "2026-07-22"
+    },
+    {
+      "pctChg1D": 0.2280484,
+      "pxClose": 4728.0018,
+      "trdCode": "000300",
+      "trdDt": "2026-07-23"
+    },
+    {
+      "pctChg1D": -1.66687965,
+      "pxClose": 4649.1917,
+      "trdCode": "000300",
+      "trdDt": "2026-07-24"
     }
   ]
 }
