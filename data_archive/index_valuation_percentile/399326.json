@@ -1,7 +1,7 @@
 {
   "source": "https://cdn.efunds.com.cn/etf-net/index_valuation_percentile_399326.json",
   "index_code": "399326",
-  "updated_at": "2026-07-25T20:30:23.050436+08:00",
+  "updated_at": "2026-07-27T18:51:13.259418+08:00",
   "records": [
     {
       "pBLf": 1.9685,
@@ -168978,7 +168978,7 @@
       "pSTtm3Y": 76.7956,
       "pSTtm5Y": 80.6452,
       "pSTtm6M": 3.4188,
-      "pSTtmBgn": 87.6456,
+      "pSTtmBgn": 87.8691,
       "pSTtmTY": 3.2258,
       "trdCode": "399326",
       "trdDt": "2026-07-13"
@@ -169012,7 +169012,7 @@
       "pSTtm3Y": 83.011,
       "pSTtm5Y": 85.4425,
       "pSTtm6M": 17.9487,
-      "pSTtmBgn": 87.6456,
+      "pSTtmBgn": 87.8691,
       "pSTtmTY": 16.8,
       "trdCode": "399326",
       "trdDt": "2026-07-14"
@@ -169046,7 +169046,7 @@
       "pSTtm3Y": 80.2759,
       "pSTtm5Y": 83.5401,
       "pSTtm6M": 12.8205,
-      "pSTtmBgn": 87.6456,
+      "pSTtmBgn": 87.8691,
       "pSTtmTY": 11.9048,
       "trdCode": "399326",
       "trdDt": "2026-07-15"
@@ -169080,7 +169080,7 @@
       "pSTtm3Y": 75.8953,
       "pSTtm5Y": 80.0662,
       "pSTtm6M": 3.4188,
-      "pSTtmBgn": 87.6456,
+      "pSTtmBgn": 87.8691,
       "pSTtmTY": 3.1496,
       "trdCode": "399326",
       "trdDt": "2026-07-16"
@@ -169114,7 +169114,7 @@
       "pSTtm3Y": 72.4518,
       "pSTtm5Y": 70.9917,
       "pSTtm6M": 0.0,
-      "pSTtmBgn": 87.6456,
+      "pSTtmBgn": 87.8691,
       "pSTtmTY": 0.0,
       "trdCode": "399326",
       "trdDt": "2026-07-17"
@@ -169148,7 +169148,7 @@
       "pSTtm3Y": 72.2376,
       "pSTtm5Y": 70.3888,
       "pSTtm6M": 0.0,
-      "pSTtmBgn": 87.6456,
+      "pSTtmBgn": 87.8691,
       "pSTtmTY": 0.0,
       "trdCode": "399326",
       "trdDt": "2026-07-20"
@@ -169182,7 +169182,7 @@
       "pSTtm3Y": 74.1713,
       "pSTtm5Y": 78.3292,
       "pSTtm6M": 2.5641,
-      "pSTtmBgn": 87.6456,
+      "pSTtmBgn": 87.8691,
       "pSTtmTY": 2.3077,
       "trdCode": "399326",
       "trdDt": "2026-07-21"
@@ -169216,7 +169216,7 @@
       "pSTtm3Y": 72.6897,
       "pSTtm5Y": 72.5393,
       "pSTtm6M": 1.7094,
-      "pSTtmBgn": 87.6456,
+      "pSTtmBgn": 87.8691,
       "pSTtmTY": 1.5267,
       "trdCode": "399326",
       "trdDt": "2026-07-22"
@@ -169250,7 +169250,7 @@
       "pSTtm3Y": 73.0028,
       "pSTtm5Y": 74.7725,
       "pSTtm6M": 2.5641,
-      "pSTtmBgn": 87.6456,
+      "pSTtmBgn": 87.8691,
       "pSTtmTY": 2.2727,
       "trdCode": "399326",
       "trdDt": "2026-07-23"
@@ -169284,7 +169284,7 @@
       "pSTtm3Y": 72.314,
       "pSTtm5Y": 71.7355,
       "pSTtm6M": 1.6949,
-      "pSTtmBgn": 87.6456,
+      "pSTtmBgn": 87.8691,
       "pSTtmTY": 1.5038,
       "trdCode": "399326",
       "trdDt": "2026-07-24"
