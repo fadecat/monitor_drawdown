@@ -1,7 +1,7 @@
 {
   "source": "https://cdn.efunds.com.cn/etf-net/index_dividend_ratio_399303.json",
   "index_code": "399303",
-  "updated_at": "2026-07-31T17:59:46.669887+08:00",
+  "updated_at": "2026-08-03T18:51:43.673134+08:00",
   "records": [
     {
       "dividendYield": 0.7165,
@@ -15007,6 +15007,11 @@
       "dividendYield": 1.1192,
       "trdCode": "399303",
       "trdDt": "2026-07-30"
+    },
+    {
+      "dividendYield": 1.0924,
+      "trdCode": "399303",
+      "trdDt": "2026-07-31"
     }
   ]
 }
