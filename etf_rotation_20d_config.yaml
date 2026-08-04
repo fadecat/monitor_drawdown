@@ -1,0 +1,37 @@
+# 集思录 20 日涨幅 ETF 轮动策略配置
+# 数据源：集思录 detail_hists（https://www.jisilu.cn/data/{category}/detail/{code}）
+# 选股规则：20 日涨幅（收盘价）> 0 中取最大者为次日持仓；全 <= 0 时空仓持有 fallback
+strategy:
+  lookback_days: 20        # 20 个交易日
+  initial_nav: 1.0         # 组合净值起始值
+
+# 轮动标的池
+universe:
+  - code: "512040"
+    name: 价值ETF富国
+    jisilu_category: etf
+  - code: "159967"
+    name: 创业板成长ETF华夏
+    jisilu_category: etf
+  - code: "513090"
+    name: 香港证券ETF易方达
+    jisilu_category: etf
+  - code: "159934"
+    name: 黄金ETF易方达
+    jisilu_category: etf
+  - code: "159941"
+    name: 纳指ETF广发
+    jisilu_category: qdii
+  - code: "513880"
+    name: 日经225ETF华安
+    jisilu_category: qdii
+  - code: "164824"
+    name: 印度基金LOF
+    jisilu_category: qdii
+
+# 全部标的 20 日涨幅 <= 0 时空仓持有（511880 不在集思录，走 eastmoney/akshare）
+fallback_holding:
+  code: "511880"
+  name: 银华日利
+
+state_path: data_state/etf_rotation_20d_state.json
