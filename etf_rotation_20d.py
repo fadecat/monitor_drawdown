@@ -432,6 +432,35 @@ def run_strategy(
     return state
 
 
+def compute_drawdown_stats(
+    history: List[Dict[str, Any]], initial_nav: float
+) -> Dict[str, float]:
+    """从持仓历史计算累计收益、最大回撤、当前回撤（均基于组合净值序列）。"""
+    navs = [float(initial_nav)] + [
+        float(e["nav"]) for e in history if e.get("nav") is not None
+    ]
+    if not navs:
+        return {"total_return": 0.0, "max_drawdown": 0.0, "current_drawdown": 0.0}
+    peak = navs[0]
+    max_dd = 0.0
+    for value in navs:
+        if value > peak:
+            peak = value
+        if peak > 0:
+            dd = value / peak - 1.0
+            if dd < max_dd:
+                max_dd = dd
+    current = navs[-1]
+    peak_all = max(navs)
+    total_return = current / float(initial_nav) - 1.0 if initial_nav else 0.0
+    current_dd = current / peak_all - 1.0 if peak_all > 0 else 0.0
+    return {
+        "total_return": total_return,
+        "max_drawdown": max_dd,
+        "current_drawdown": current_dd,
+    }
+
+
 def build_report(state: Dict[str, Any], config: Dict[str, Any]) -> Dict[str, Any]:
     names = code_name_map(config)
     history = state.get("holdings_history", [])
@@ -443,6 +472,7 @@ def build_report(state: Dict[str, Any], config: Dict[str, Any]) -> Dict[str, Any
         key=lambda x: x["return_20d"],
         reverse=True,
     )
+    stats = compute_drawdown_stats(history, config["strategy"]["initial_nav"])
     return {
         "as_of_date": latest.get("date"),
         "current_holding": latest.get("holding"),
@@ -455,6 +485,10 @@ def build_report(state: Dict[str, Any], config: Dict[str, Any]) -> Dict[str, Any
         "fallback_name": names.get(fallback_code, ""),
         "history": history,
         "portfolio_nav": state.get("portfolio_nav"),
+        "total_return": stats["total_return"],
+        "max_drawdown": stats["max_drawdown"],
+        "current_drawdown": stats["current_drawdown"],
+        "code_names": names,
     }
 
 

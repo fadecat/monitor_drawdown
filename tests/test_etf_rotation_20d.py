@@ -129,6 +129,23 @@ def test_backfill_starts_after_lookback_and_raises_when_insufficient():
         strat.backfill(short, short, UNIVERSE, FALLBACK, LOOKBACK, 1.0)
 
 
+# ----------------------------- 回撤统计 ----------------------------------- #
+def test_compute_drawdown_stats_basic():
+    history = [{"nav": 1.05}, {"nav": 0.95}, {"nav": 1.02}]
+    stats = strat.compute_drawdown_stats(history, initial_nav=1.0)
+    # peak 1.05, trough 0.95 -> max_dd = 0.95/1.05 - 1
+    assert stats["max_drawdown"] == pytest.approx(0.95 / 1.05 - 1.0)
+    # current 1.02 vs all-time peak 1.05
+    assert stats["current_drawdown"] == pytest.approx(1.02 / 1.05 - 1.0)
+    # total return 1.02/1.0 - 1
+    assert stats["total_return"] == pytest.approx(0.02)
+
+
+def test_compute_drawdown_stats_empty_history():
+    stats = strat.compute_drawdown_stats([], initial_nav=1.0)
+    assert stats == {"total_return": 0.0, "max_drawdown": 0.0, "current_drawdown": 0.0}
+
+
 # ----------------------------- 状态持久化 --------------------------------- #
 def test_state_save_load_roundtrip(tmp_path: Path):
     state = {

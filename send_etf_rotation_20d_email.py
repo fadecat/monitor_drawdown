@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import os
 import smtplib
-from datetime import datetime, timezone
 from email.message import EmailMessage
 from html import escape
 from pathlib import Path
@@ -54,12 +53,28 @@ def _fmt_nav(value: Any) -> str:
         return "-"
 
 
+def _return_color(value: Any) -> str:
+    """A 股配色：上涨红、下跌绿。"""
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return "#333"
+    if v > 0:
+        return "#d93025"
+    if v < 0:
+        return "#2E7D32"
+    return "#333"
+
+
 def build_email_text(report: Dict[str, Any]) -> str:
     lines = [
         "20 日涨幅 ETF 轮动日报",
         f"信号日期: {report.get('as_of_date', '-')}",
         f"当日持仓: {report.get('current_holding_name', '-')} ({report.get('current_holding', '-')})",
         f"组合净值: {_fmt_nav(report.get('current_nav'))}",
+        f"累计收益: {_fmt_pct(report.get('total_return'))}",
+        f"最大回撤: {_fmt_pct(report.get('max_drawdown'))}",
+        f"当前回撤: {_fmt_pct(report.get('current_drawdown'))}",
         f"次日持仓: {report.get('next_holding_name', '-')} ({report.get('next_holding', '-')})",
         "",
         "20 日涨幅排名:",
@@ -67,7 +82,7 @@ def build_email_text(report: Dict[str, Any]) -> str:
     for item in report.get("ranking", []):
         lines.append(f"  {item['name']} ({item['code']}): {_fmt_pct(item['return_20d'])}")
     lines.extend(["", "历史持仓(近 20 日):"])
-    for entry in report.get("history", [])[-20:]:
+    for entry in report.get("history", [])[-20:][::-1]:
         lines.append(
             f"  {entry['date']} 持有 {entry['holding']} 净值 {_fmt_nav(entry.get('nav'))} "
             f"日收益 {_fmt_pct(entry.get('daily_return'))}"
@@ -86,10 +101,12 @@ def build_email_html(report: Dict[str, Any], chart_cid: str) -> str:
     next_code_raw = str(report.get("next_holding", ""))
     is_fallback = next_code_raw == report.get("fallback_code")
 
+    names = report.get("code_names", {})
     ranking_rows = []
-    for item in report.get("ranking", []):
-        is_top = item is report.get("ranking", [None])[0] and item.get("return_20d", 0) > 0
-        color = "#2E7D32" if is_top else "#333"
+    ranking = report.get("ranking", [])
+    for idx, item in enumerate(ranking):
+        is_top = idx == 0 and float(item.get("return_20d") or 0) > 0
+        color = _return_color(item.get("return_20d"))
         weight = "bold" if is_top else "normal"
         ranking_rows.append(
             f"<tr><td style='padding:4px 10px'>{escape(item['name'])}</td>"
@@ -100,17 +117,27 @@ def build_email_html(report: Dict[str, Any], chart_cid: str) -> str:
     ranking_html = "\n".join(ranking_rows) if ranking_rows else "<tr><td colspan='3'>无数据</td></tr>"
 
     history_rows = []
-    for entry in report.get("history", [])[-20:]:
+    for entry in report.get("history", [])[-20:][::-1]:
+        code = str(entry.get("holding", ""))
+        name = names.get(code, "")
+        holding_label = f"{escape(name)} ({escape(code)})" if name else escape(code)
+        ret_color = _return_color(entry.get("daily_return"))
         history_rows.append(
             f"<tr><td style='padding:3px 10px'>{escape(str(entry['date']))}</td>"
-            f"<td style='padding:3px 10px'>{escape(str(entry['holding']))}</td>"
+            f"<td style='padding:3px 10px'>{holding_label}</td>"
             f"<td style='padding:3px 10px;text-align:right'>{_fmt_nav(entry.get('nav'))}</td>"
-            f"<td style='padding:3px 10px;text-align:right'>{_fmt_pct(entry.get('daily_return'))}</td></tr>"
+            f"<td style='padding:3px 10px;color:{ret_color};text-align:right'>{_fmt_pct(entry.get('daily_return'))}</td></tr>"
         )
     history_html = "\n".join(history_rows) if history_rows else "<tr><td colspan='4'>无历史</td></tr>"
 
     next_badge = "（空仓防御）" if is_fallback else ""
-    generated = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    total_return = report.get("total_return")
+    max_drawdown = report.get("max_drawdown")
+    current_drawdown = report.get("current_drawdown")
+    tr_color = _return_color(total_return)
+    md_color = _return_color(max_drawdown)
+    cd_color = _return_color(current_drawdown)
+    generated = strategy.now_in_beijing().replace(microsecond=0).strftime("%Y-%m-%d %H:%M:%S")
 
     return f"""\
 <div style="font-family:-apple-system,'Segoe UI','Microsoft YaHei',Arial,sans-serif;color:#222;max-width:680px">
@@ -123,6 +150,12 @@ def build_email_html(report: Dict[str, Any], chart_cid: str) -> str:
         <td style="padding:4px 0">{cur_name} ({cur_code})</td></tr>
     <tr><td style="padding:4px 16px 4px 0;color:#888">组合净值</td>
         <td style="padding:4px 0">{cur_nav}</td></tr>
+    <tr><td style="padding:4px 16px 4px 0;color:#888">累计收益</td>
+        <td style="padding:4px 0;color:{tr_color}">{_fmt_pct(total_return)}</td></tr>
+    <tr><td style="padding:4px 16px 4px 0;color:#888">最大回撤</td>
+        <td style="padding:4px 0;color:{md_color}">{_fmt_pct(max_drawdown)}</td></tr>
+    <tr><td style="padding:4px 16px 4px 0;color:#888">当前回撤</td>
+        <td style="padding:4px 0;color:{cd_color}">{_fmt_pct(current_drawdown)}</td></tr>
   </table>
 
   <h3 style="margin:18px 0 6px">20 日涨幅排名</h3>

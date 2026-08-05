@@ -57,7 +57,7 @@ def generate_nav_chart(
             1.0,
             navs,
             where=[v >= 1.0 for v in navs],
-            color="#2c7be5",
+            color="#d93025",
             alpha=0.08,
             interpolate=True,
         )
@@ -66,7 +66,7 @@ def generate_nav_chart(
             navs,
             1.0,
             where=[v < 1.0 for v in navs],
-            color="#d93025",
+            color="#2E7D32",
             alpha=0.08,
             interpolate=True,
         )
