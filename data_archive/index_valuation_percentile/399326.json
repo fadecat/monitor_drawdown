@@ -1,7 +1,7 @@
 {
   "source": "https://cdn.efunds.com.cn/etf-net/index_valuation_percentile_399326.json",
   "index_code": "399326",
-  "updated_at": "2026-08-05T17:57:31.083847+08:00",
+  "updated_at": "2026-08-06T18:00:10.762872+08:00",
   "records": [
     {
       "pBLf": 1.9685,
@@ -169216,7 +169216,7 @@
       "pSTtm3Y": 72.6897,
       "pSTtm5Y": 72.5393,
       "pSTtm6M": 1.7094,
-      "pSTtmBgn": 86.2415,
+      "pSTtmBgn": 85.6828,
       "pSTtmTY": 1.5267,
       "trdCode": "399326",
       "trdDt": "2026-07-22"
@@ -169250,7 +169250,7 @@
       "pSTtm3Y": 73.0028,
       "pSTtm5Y": 74.7725,
       "pSTtm6M": 2.5641,
-      "pSTtmBgn": 86.2415,
+      "pSTtmBgn": 85.6828,
       "pSTtmTY": 2.2727,
       "trdCode": "399326",
       "trdDt": "2026-07-23"
@@ -169284,7 +169284,7 @@
       "pSTtm3Y": 72.314,
       "pSTtm5Y": 71.7355,
       "pSTtm6M": 1.6949,
-      "pSTtmBgn": 86.2415,
+      "pSTtmBgn": 85.6828,
       "pSTtmTY": 1.5038,
       "trdCode": "399326",
       "trdDt": "2026-07-24"
@@ -169318,7 +169318,7 @@
       "pSTtm3Y": 72.2376,
       "pSTtm5Y": 72.1257,
       "pSTtm6M": 2.5641,
-      "pSTtmBgn": 86.2415,
+      "pSTtmBgn": 85.6828,
       "pSTtmTY": 2.2388,
       "trdCode": "399326",
       "trdDt": "2026-07-27"
@@ -169352,7 +169352,7 @@
       "pSTtm3Y": 71.4088,
       "pSTtm5Y": 67.1629,
       "pSTtm6M": 0.0,
-      "pSTtmBgn": 86.2415,
+      "pSTtmBgn": 85.6828,
       "pSTtmTY": 0.0,
       "trdCode": "399326",
       "trdDt": "2026-07-28"
@@ -169386,7 +169386,7 @@
       "pSTtm3Y": 71.4483,
       "pSTtm5Y": 68.0728,
       "pSTtm6M": 0.8547,
-      "pSTtmBgn": 86.2415,
+      "pSTtmBgn": 85.6828,
       "pSTtmTY": 0.7353,
       "trdCode": "399326",
       "trdDt": "2026-07-29"
@@ -169420,7 +169420,7 @@
       "pSTtm3Y": 71.2121,
       "pSTtm5Y": 66.9975,
       "pSTtm6M": 0.0,
-      "pSTtmBgn": 86.2415,
+      "pSTtmBgn": 85.6828,
       "pSTtmTY": 0.0,
       "trdCode": "399326",
       "trdDt": "2026-07-30"
@@ -169454,7 +169454,7 @@
       "pSTtm3Y": 71.3499,
       "pSTtm5Y": 67.6033,
       "pSTtm6M": 1.6949,
-      "pSTtmBgn": 86.2415,
+      "pSTtmBgn": 85.6828,
       "pSTtmTY": 1.4493,
       "trdCode": "399326",
       "trdDt": "2026-07-31"
@@ -169488,7 +169488,7 @@
       "pSTtm3Y": 70.9945,
       "pSTtm5Y": 67.0802,
       "pSTtm6M": 0.8547,
-      "pSTtmBgn": 86.2415,
+      "pSTtmBgn": 85.6828,
       "pSTtmTY": 0.7194,
       "trdCode": "399326",
       "trdDt": "2026-08-03"
@@ -169522,10 +169522,44 @@
       "pSTtm3Y": 71.4088,
       "pSTtm5Y": 70.3888,
       "pSTtm6M": 4.2735,
-      "pSTtmBgn": 86.2415,
+      "pSTtmBgn": 85.6828,
       "pSTtmTY": 3.5714,
       "trdCode": "399326",
       "trdDt": "2026-08-04"
+    },
+    {
+      "pBLf": 5.9795,
+      "pBLf10Y": 73.6191,
+      "pBLf1Y": 45.8678,
+      "pBLf2Y": 72.9339,
+      "pBLf3M": 9.2308,
+      "pBLf3Y": 81.9559,
+      "pBLf5Y": 77.2727,
+      "pBLf6M": 8.4746,
+      "pBLfBgn": 82.8554,
+      "pBLfTY": 14.7887,
+      "pETtm": 32.8009,
+      "pETtm10Y": 79.4724,
+      "pETtm1Y": 56.1983,
+      "pETtm2Y": 78.0992,
+      "pETtm3M": 12.3077,
+      "pETtm3Y": 85.3994,
+      "pETtm5Y": 91.0744,
+      "pETtm6M": 24.5763,
+      "pETtmBgn": 83.7578,
+      "pETtmTY": 37.3239,
+      "pSTtm": 3.7757,
+      "pSTtm10Y": 72.6186,
+      "pSTtm1Y": 14.5228,
+      "pSTtm2Y": 57.3499,
+      "pSTtm3M": 10.9375,
+      "pSTtm3Y": 71.5862,
+      "pSTtm5Y": 71.2986,
+      "pSTtm6M": 5.9829,
+      "pSTtmBgn": 85.6828,
+      "pSTtmTY": 4.9645,
+      "trdCode": "399326",
+      "trdDt": "2026-08-05"
     }
   ]
 }
