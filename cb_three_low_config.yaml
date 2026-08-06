@@ -1,0 +1,41 @@
+# 可转债三低轮动 模拟盘配置
+# 选债逻辑移植自 v2_cb_rotation/src/services/jisilu_service.py（实盘 factors.json 活跃模板）
+# 模拟盘：NAV 从 1.0 起，10 只等权，日频再平衡，无盘中止盈，仅向前记录（不回填历史）
+strategy:
+  target_count: 10          # 持仓只数
+  hold_tolerance: 5         # 容差：已持有且排名 ≤ target+tol 内的保留，降低换手
+  initial_nav: 1.0          # 组合净值起始值
+
+  # 三低因子：值越小越好，各权重 1.0
+  factors:
+    - {field: dblow,        weight: 1.0, ascending: true,  label: "双低值"}
+    - {field: premium_rt,   weight: 1.0, ascending: true,  label: "溢价率"}
+    - {field: curr_iss_amt, weight: 1.0, ascending: true,  label: "剩余规模"}
+
+  # 数值阈值排除规则（取不到值时不排除，宁可放行）
+  # op: lt = 小于阈值排除，gt = 大于阈值排除
+  exclusion_rules:
+    - {field: pb,                 op: lt, threshold: 1,   label: "市净率<1(正股破净)"}
+    - {field: year_left,          op: lt, threshold: 1,   label: "剩余年限<1年"}
+    - {field: curr_iss_amt,       op: lt, threshold: 1,   label: "剩余规模<1亿"}
+    - {field: curr_iss_amt,       op: gt, threshold: 20,  label: "剩余规模>20亿"}
+    - {field: convert_amt_ratio,  op: gt, threshold: 20,  label: "转债市占比>20%"}
+    - {field: sprice,             op: lt, threshold: 5,   label: "正股价<5元(仙股)"}
+    - {field: convert_value,      op: gt, threshold: 127, label: "转股价值>127(偏股型)"}
+
+  # 强赎过滤：icons 命中 R/O/B 即排除
+  excluded_redeem_icons: ["R", "O", "B"]
+  redeem_safe_days: 2       # 临近强赎触发 ≤ 该天数即排除（-1 表示远离触发，安全）
+  min_listing_days: 3       # 上市未满该天数排除
+
+  # 手动排除清单（与实盘 factors.json 一致）
+  excluded_bond_codes:
+    - "118027.SH"   # 宏图转债
+    - "110092.SH"   # 三房转债
+    - "110081.SH"   # 闻泰转债
+    - "128119.SZ"   # 龙大转债
+    - "123157.SZ"   # 科蓝转债
+    - "110093.SH"   # 神马转债
+    - "127061.SZ"
+
+state_path: data_state/cb_three_low_state.json
