@@ -98,6 +98,58 @@ def load_benchmark_series() -> Optional[List[Dict[str, Any]]]:
         return None
 
 
+def _bond_chip_html(name: Any, pct: Any = None, *, added: bool = False,
+                    removed: bool = False, days: int = 0) -> str:
+    """单只转债 chip：字色=当日涨跌（红涨绿跌），加粗=调入，删除线=调出，角标=连续持有天数。"""
+    base = ("display:inline-block;margin:1px 4px 1px 0;padding:1px 7px;"
+            "border:1px solid #e3e5e8;border-radius:9px;white-space:nowrap;")
+    if removed:
+        style = base + "color:#a6abb3;text-decoration:line-through;background:#f5f6f7"
+        return f"<span style='{style}'>{escape(str(name))}</span>"
+    color = _return_color(pct) if pct is not None else "#333"
+    weight = "font-weight:bold;" if added else ""
+    sup = f"<sup style='color:#b4b8be;font-size:10px'>{days}</sup>" if days >= 2 else ""
+    style = base + f"color:{color};{weight}background:#fafbfc"
+    return f"<span style='{style}'>{escape(str(name))}{sup}</span>"
+
+
+def _history_entry_chips(full_history: List[Dict[str, Any]], gidx: int) -> tuple:
+    """渲染一天持仓的 chip HTML 与换手文本。gidx 为 entry 在完整历史中的下标。"""
+    entry = full_history[gidx]
+    prev_holdings = full_history[gidx - 1].get("holdings", []) if gidx > 0 else []
+    prev_price = {str(h.get("code")): h.get("price") for h in prev_holdings}
+    cur_codes = {str(h.get("code")) for h in entry.get("holdings", [])}
+    chips = []
+    added_n = 0
+    for h in entry.get("holdings", []):
+        code = str(h.get("code", ""))
+        if not prev_holdings and gidx == 0:
+            chips.append(_bond_chip_html(h.get("name", "")))  # 建仓日：无涨跌色
+            continue
+        added = code not in prev_price
+        added_n += 1 if added else 0
+        pct = None
+        if not added:
+            try:
+                pct = float(h.get("price")) / float(prev_price[code]) - 1.0
+            except (TypeError, ValueError, ZeroDivisionError):
+                pct = None
+        days = 0
+        j = gidx
+        while j >= 0 and any(str(x.get("code")) == code
+                             for x in full_history[j].get("holdings", [])):
+            days += 1
+            j -= 1
+        chips.append(_bond_chip_html(h.get("name", ""), pct, added=added, days=days))
+    for h in prev_holdings:  # 调出：灰色删除线，排在末尾
+        if str(h.get("code", "")) not in cur_codes:
+            chips.append(_bond_chip_html(h.get("name", ""), removed=True))
+    if gidx == 0:
+        tag = "<span style='color:#999;font-size:11px;margin-right:4px'>建仓</span>"
+        return tag + "".join(chips), "建仓"
+    return "".join(chips), added_n
+
+
 def build_email_text(report: Dict[str, Any]) -> str:
     lines = [
         "可转债三低轮动日报",
@@ -122,11 +174,27 @@ def build_email_text(report: Dict[str, Any]) -> str:
             f"双低 {_fmt_num(item.get('dblow'))} 溢价 {_fmt_num(item.get('premium_rt'))}% "
             f"规模 {_fmt_num(item.get('curr_iss_amt'))}{mark}"
         )
-    lines.extend(["", "历史净值(近 20 日):"])
-    for entry in report.get("history", [])[-20:][::-1]:
+    lines.extend(["", "历史持仓(近 20 日):"])
+    full_history = report.get("history", [])
+    window = full_history[-20:]
+    offset = len(full_history) - len(window)
+    for widx in range(len(window) - 1, -1, -1):
+        entry = window[widx]
+        gidx = offset + widx
+        prev_holdings = full_history[gidx - 1].get("holdings", []) if gidx > 0 else []
+        prev_codes = {str(h.get("code")) for h in prev_holdings}
+        cur_codes = {str(h.get("code")) for h in entry.get("holdings", [])}
+        parts = []
+        for h in entry.get("holdings", []):
+            mark = "[入]" if gidx > 0 and str(h.get("code")) not in prev_codes else ""
+            parts.append(f"{h.get('name', '')}{mark}")
+        for h in prev_holdings:
+            if str(h.get("code")) not in cur_codes:
+                parts.append(f"{h.get('name', '')}[出]")
+        names = "、".join(parts)
         lines.append(
             f"  {entry['date']} 净值 {_fmt_num(entry.get('nav'), 4)} "
-            f"日收益 {_fmt_pct(entry.get('daily_return'))} 持仓 {len(entry.get('holdings', []))} 只"
+            f"日收益 {_fmt_pct(entry.get('daily_return'))} 持有 {names}"
         )
     return "\n".join(lines)
 
@@ -175,19 +243,28 @@ def build_email_html(report: Dict[str, Any], chart_cid: str) -> str:
         )
     ranking_html = "\n".join(ranking_rows) if ranking_rows else "<tr><td colspan='9'>无数据</td></tr>"
 
-    # 历史净值表
+    # 历史持仓表（移动友好：窄列指标行 + 全宽 chip 行，两行一天）
+    full_history = report.get("history", [])
+    window = full_history[-20:]
+    offset = len(full_history) - len(window)
+    target_count = report.get("target_count", 10)
     history_rows = []
-    for entry in report.get("history", [])[-20:][::-1]:
+    for widx in range(len(window) - 1, -1, -1):
+        entry = window[widx]
+        chips_html, turnover = _history_entry_chips(full_history, offset + widx)
+        if isinstance(turnover, int):
+            turnover_txt = f"{turnover / target_count * 100:.0f}%" if target_count else "-"
+        else:
+            turnover_txt = turnover  # 建仓
         ret_color = _return_color(entry.get("daily_return"))
         history_rows.append(
-            f"<tr><td style='padding:3px 10px'>{escape(str(entry.get('date', '')))}</td>"
-            f"<td style='padding:3px 10px;text-align:right'>{_fmt_num(entry.get('nav'), 4)}</td>"
-            f"<td style='padding:3px 10px;text-align:right;color:{ret_color}'>{_fmt_pct(entry.get('daily_return'))}</td>"
-            f"<td style='padding:3px 10px;text-align:right'>{len(entry.get('holdings', []))}</td></tr>"
+            f"<tr><td style='padding:5px 10px 0;white-space:nowrap'>{escape(str(entry.get('date', '')))}</td>"
+            f"<td style='padding:5px 10px 0;text-align:right;white-space:nowrap'>{_fmt_num(entry.get('nav'), 4)}</td>"
+            f"<td style='padding:5px 10px 0;text-align:right;white-space:nowrap;color:{ret_color}'>{_fmt_pct(entry.get('daily_return'))}</td>"
+            f"<td style='padding:5px 10px 0;text-align:right;white-space:nowrap;color:#888'>{turnover_txt}</td></tr>"
+            f"<tr><td colspan='4' style='padding:2px 10px 8px;border-bottom:1px solid #eee'>{chips_html}</td></tr>"
         )
     history_html = "\n".join(history_rows) if history_rows else "<tr><td colspan='4'>无历史</td></tr>"
-
-    target_count = report.get("target_count", 10)
 
     return f"""\
 <div style="font-family:-apple-system,'Segoe UI','Microsoft YaHei',Arial,sans-serif;color:#222;max-width:720px">
@@ -244,18 +321,21 @@ def build_email_html(report: Dict[str, Any], chart_cid: str) -> str:
   <h3 style="margin:18px 0 6px">组合净值 vs 集思录等权指数</h3>
   <img src="cid:{chart_cid}" alt="nav chart" style="width:100%;max-width:640px;border:1px solid #e5e5e5;border-radius:6px" />
 
-  <h3 style="margin:18px 0 6px">历史净值（近 20 日）</h3>
+  <h3 style="margin:18px 0 6px">历史持仓（近 20 日）</h3>
   <table style="border-collapse:collapse;font-size:12px;width:100%">
     <thead><tr style="background:#f4f6f8;color:#555">
       <th style="padding:5px 10px;text-align:left">日期</th>
       <th style="padding:5px 10px;text-align:right">净值</th>
       <th style="padding:5px 10px;text-align:right">日收益</th>
-      <th style="padding:5px 10px;text-align:right">持仓数</th>
+      <th style="padding:5px 10px;text-align:right">换手</th>
     </tr></thead>
     <tbody>
 {history_html}
     </tbody>
   </table>
+  <p style="color:#aaa;font-size:11px;margin-top:4px">
+    债名字色 = 当日涨跌（红涨绿跌），<b>加粗</b> = 调入，<s style="color:#a6abb3">删除线</s> = 调出，右上角小字 = 连续持有天数。
+  </p>
   <p style="color:#aaa;font-size:11px;margin-top:16px">
     规则：三低策略（双低值+溢价率+剩余规模综合评分）取前 {target_count} 只等权持仓，日频再平衡，容差保留已持有且仍在池内的转债。
     T 日净值用 T-1 收盘已决定的持仓更新（无未来函数）。模拟盘，不发真实委托。
