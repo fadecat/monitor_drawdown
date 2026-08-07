@@ -1,7 +1,7 @@
 {
   "source": "https://cdn.efunds.com.cn/etf-net/index_valuation_percentile_930955.json",
   "index_code": "930955",
-  "updated_at": "2026-08-06T18:00:10.762872+08:00",
+  "updated_at": "2026-08-07T16:31:29.745818+08:00",
   "records": [
     {
       "pBLf": 1.2653,
@@ -75924,6 +75924,40 @@
       "pSTtmTY": 91.4894,
       "trdCode": "930955",
       "trdDt": "2026-08-05"
+    },
+    {
+      "pBLf": 0.8756,
+      "pBLf10Y": 62.265,
+      "pBLf1Y": 25.2066,
+      "pBLf2Y": 61.3636,
+      "pBLf3M": 55.3846,
+      "pBLf3Y": 74.2779,
+      "pBLf5Y": 84.5455,
+      "pBLf6M": 30.5085,
+      "pBLfBgn": 62.265,
+      "pBLfTY": 25.1748,
+      "pETtm": 8.858,
+      "pETtm10Y": 82.5425,
+      "pETtm1Y": 22.7273,
+      "pETtm2Y": 61.3636,
+      "pETtm3M": 41.5385,
+      "pETtm3Y": 74.2779,
+      "pETtm5Y": 84.5455,
+      "pETtm6M": 23.7288,
+      "pETtmBgn": 82.5425,
+      "pETtmTY": 19.5804,
+      "pSTtm": 1.4924,
+      "pSTtm10Y": 91.6704,
+      "pSTtm1Y": 85.8921,
+      "pSTtm2Y": 92.9607,
+      "pSTtm3M": 81.25,
+      "pSTtm3Y": 95.3168,
+      "pSTtm5Y": 97.1878,
+      "pSTtm6M": 89.7436,
+      "pSTtmBgn": 91.6704,
+      "pSTtmTY": 91.5493,
+      "trdCode": "930955",
+      "trdDt": "2026-08-06"
     }
   ]
 }
