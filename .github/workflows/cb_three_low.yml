@@ -1,9 +1,6 @@
 name: CB Three-Low Email
 
 on:
-  schedule:
-    # GitHub Actions 使用 UTC；UTC 07:30 = Asia/Shanghai 15:30（A股收盘后）
-    - cron: "30 7 * * 1-5"
   workflow_dispatch:
 
 jobs:
