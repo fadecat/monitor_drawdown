@@ -1,9 +1,6 @@
 name: CCTDA Coal Daily Email
 
 on:
-  schedule:
-    # GitHub Actions 使用 UTC，错开整点拥堵；UTC 07:03 = Asia/Shanghai 15:03
-    - cron: "3 7 * * *"
   workflow_dispatch:
 
 jobs:

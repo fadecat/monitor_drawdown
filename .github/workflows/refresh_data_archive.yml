@@ -1,8 +1,6 @@
 name: Refresh Data Archive
 
 on:
-  schedule:
-    - cron: "17 7 * * 1-5"
   workflow_dispatch:
 
 permissions:

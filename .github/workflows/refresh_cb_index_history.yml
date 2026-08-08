@@ -1,8 +1,6 @@
 name: Refresh CB Index History
 
 on:
-  schedule:
-    - cron: "25 10 * * 1-5"
   workflow_dispatch:
 
 permissions:
